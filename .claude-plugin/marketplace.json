@@ -1,0 +1,13 @@
+{
+  "name": "context-doctor",
+  "owner": {
+    "name": "Anawin Chuklee"
+  },
+  "plugins": [
+    {
+      "name": "context-doctor",
+      "source": "./",
+      "description": "See, score and fix what feeds Claude Code context — memory, skills, agents, hooks, MCP. Audits, routing, conflicts, real usage, live view."
+    }
+  ]
+}

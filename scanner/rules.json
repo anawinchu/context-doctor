@@ -1,0 +1,30 @@
+[
+  {
+    "severity": "high", "cat": "routing", "code": "CL-04",
+    "title": { "en": "ECC review agents claim every code change (\"MUST BE USED\")", "th": "agent รีวิวของ ECC บอกว่า \"MUST BE USED\" กับทุกการแก้โค้ด" },
+    "detail": { "en": "ecc:code-reviewer says \"Use immediately after writing or modifying code. MUST BE USED for all code changes.\"; language reviewers add the same for their stack. This pulls the model into spawning 2–5 agents per change, against the harness rule \"when in doubt, don't spawn\".", "th": "ecc:code-reviewer เขียนว่า \"Use immediately after writing or modifying code. MUST BE USED for all code changes.\" และ reviewer ของแต่ละภาษาก็เขียนแบบเดียวกัน ทำให้โมเดลถูกกระตุ้นให้ spawn agent 2–5 ตัวต่อการแก้หนึ่งครั้ง ขัดกับ harness \"when in doubt, don't spawn\"" },
+    "fix": { "en": "If you don't use these agents, disable ECC for the project (\"ecc@ecc\": false) or name one review owner in CLAUDE.md.", "th": "ถ้าไม่ได้ใช้ agent ชุดนี้ ให้ปิด ECC ในโปรเจกต์ (\"ecc@ecc\": false) หรือระบุเจ้าของงานรีวิวตัวเดียวใน CLAUDE.md" },
+    "requires": { "item": "ecc:code-reviewer" }
+  },
+  {
+    "severity": "medium", "cat": "transparency", "code": "CL-08",
+    "title": { "en": "ECC stop:format-typecheck formats edited files after every turn", "th": "ECC stop:format-typecheck จัด format ไฟล์ที่แก้หลังจบทุก turn" },
+    "detail": { "en": "A Stop hook runs Prettier/Biome and tsc on JS/TS files edited in the turn. Diffs gain lines the model did not write, and every turn is slower.", "th": "Stop hook รัน Prettier/Biome และ tsc กับไฟล์ JS/TS ที่แก้ใน turn นั้น diff จึงมีบรรทัดที่โมเดลไม่ได้เขียน และทุก turn ช้าลง" },
+    "fix": { "en": "Set ECC's hook_profile to minimal or hooks_enabled=false if you use ECC only for skills; otherwise mention it in CLAUDE.md.", "th": "ตั้ง hook_profile ของ ECC เป็น minimal หรือ hooks_enabled=false ถ้าใช้ ECC แค่เพื่อ skills หรือเขียนบอกไว้ใน CLAUDE.md" },
+    "requires": { "hookId": "stop:format-typecheck" }
+  },
+  {
+    "severity": "medium", "cat": "transparency", "code": "CL-09",
+    "title": { "en": "ECC session:start injects the previous session's summary", "th": "ECC session:start ฉีดสรุป session ก่อนหน้าเข้ามาทุก session" },
+    "detail": { "en": "Old tasks, edited files and images arrive as context in every new session, costing tokens and inviting the model to resume stale work.", "th": "task เก่า ไฟล์ที่แก้ และรูปภาพ ถูกใส่เข้ามาใน session ใหม่ทุกครั้ง เสีย token และเสี่ยงให้โมเดลทำงานเก่าต่อ" },
+    "fix": { "en": "Disable ECC hooks if you don't use its session resume; Claude Code's /resume covers the same need.", "th": "ปิด hooks ของ ECC ถ้าไม่ได้ใช้การ resume ของมัน /resume ของ Claude Code ใช้แทนได้" },
+    "requires": { "hookId": "session:start" }
+  },
+  {
+    "severity": "low", "cat": "transparency", "code": "CL-08",
+    "title": { "en": "ECC pre:config-protection denies edits to linter/formatter configs", "th": "ECC pre:config-protection บล็อกการแก้ไฟล์ config ของ linter/formatter" },
+    "detail": { "en": "When a task legitimately needs an eslint/prettier/tsconfig change, the edit is denied and the model may retry blindly.", "th": "ถ้างานจำเป็นต้องแก้ eslint/prettier/tsconfig การแก้จะถูกปฏิเสธ และโมเดลอาจลองซ้ำโดยไม่รู้สาเหตุ" },
+    "fix": { "en": "Know the cause: a denied config edit comes from this hook, not from permissions. Document it, or ask the user to make the change.", "th": "สาเหตุมาจาก hook นี้ ไม่ใช่ permission ให้บันทึกไว้ หรือขอให้ผู้ใช้แก้เอง" },
+    "requires": { "hookId": "pre:config-protection" }
+  }
+]

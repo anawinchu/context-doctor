@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Doctor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f3ef; --surface: #fcfcfb; --raised: #ffffff; --ink: #141413; --ink-2: #52514e; --ink-3: #8a8983;
+  --line: #e3e1da; --line-2: #ecebe5; --chip: #efeee9;
+  --accent: #2a78d6; --accent-soft: #e6f0fc;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #6250d6;
+  --qt-hi: #ffffff; --q150: #e4eefb; --q250: #b7d3f6; --q350: #6da7ec; --q450: #2a78d6; --q550: #184f95;
+  --crit: #c4322b; --crit-bg: #fbe9e7; --warn: #a15c00; --warn-bg: #fdf1dc; --good: #1d7a3e; --good-bg: #e6f4ea; --info: #52514e; --info-bg: #efeee9;
+  --hatch: #d8d6cf;
+  --shadow: 0 1px 2px rgba(20,20,19,.04), 0 4px 16px rgba(20,20,19,.04);
+}
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --raised: #20201e; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8c8b84;
+  --line: #2f2e2b; --line-2: #272724; --chip: #2a2a27;
+  --accent: #3987e5; --accent-soft: #1c2b40;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #9085e9;
+  --qt-hi: #0b0b0b; --q150: #232c38; --q250: #1c4a85; --q350: #256abf; --q450: #5598e7; --q550: #9ec5f4;
+  --crit: #f0857c; --crit-bg: #3a1d1a; --warn: #e8b458; --warn-bg: #36290f; --good: #7cc995; --good-bg: #16301f; --info: #c3c2b7; --info-bg: #2a2a27;
+  --hatch: #3a3935;
+  --shadow: none;
+} }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --raised: #20201e; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8c8b84;
+  --line: #2f2e2b; --line-2: #272724; --chip: #2a2a27;
+  --accent: #3987e5; --accent-soft: #1c2b40;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #9085e9;
+  --qt-hi: #0b0b0b; --q150: #232c38; --q250: #1c4a85; --q350: #256abf; --q450: #5598e7; --q550: #9ec5f4;
+  --crit: #f0857c; --crit-bg: #3a1d1a; --warn: #e8b458; --warn-bg: #36290f; --good: #7cc995; --good-bg: #16301f; --info: #c3c2b7; --info-bg: #2a2a27;
+  --hatch: #3a3935;
+  --shadow: none;
+}
+* { box-sizing: border-box }
+html { scroll-behavior: smooth; scroll-padding-top: 72px }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.65 'IBM Plex Sans Thai', system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+.mono, code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px 80px }
+.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line) }
+.top .wrap { display: flex; align-items: center; gap: 16px; padding-bottom: 0; min-height: 56px; flex-wrap: wrap }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em }
+.brand svg { color: var(--accent) }
+.top nav { display: flex; gap: 2px; overflow-x: auto; flex: 1; scrollbar-width: none }
+.top nav a { color: var(--ink-2); text-decoration: none; font-size: 13.5px; padding: 8px 10px; border-radius: 8px; white-space: nowrap }
+.top nav a:hover { background: var(--chip); color: var(--ink) }
+.iconbtn { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 10px; width: 40px; height: 40px; display: grid; place-items: center; cursor: pointer }
+.iconbtn:hover { color: var(--ink) }
+section { padding-top: 40px }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500 }
+h2 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; margin: 4px 0 6px }
+.lede { color: var(--ink-2); margin: 0 0 18px; max-width: 76ch; font-size: 14.5px }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: var(--shadow) }
+.muted { color: var(--ink-2) } .faint { color: var(--ink-3) } .small { font-size: 13px } .num { font-variant-numeric: tabular-nums }
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; padding-top: 28px }
+@media (max-width: 860px) { .hero { grid-template-columns: 1fr } }
+.score { display: flex; flex-direction: column; gap: 14px }
+.score .big { display: flex; align-items: baseline; gap: 8px }
+.score .big b { font-size: 64px; line-height: 1; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums }
+.score .big span { font-size: 22px; color: var(--ink-3) }
+.band { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; padding: 3px 10px; border-radius: 999px }
+.meter { display: grid; grid-template-columns: 96px 1fr 34px; gap: 10px; align-items: center; font-size: 13.5px }
+.meter .segs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px }
+.meter .segs i { height: 8px; border-radius: 3px; background: var(--line) }
+.meter .segs i.on { background: var(--accent) }
+.src { font-size: 12px; color: var(--ink-3); border-top: 1px dashed var(--line); padding-top: 10px }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 2px; box-shadow: var(--shadow) }
+.tile .v { font-size: 28px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.2 }
+.tile .k { font-size: 13px; color: var(--ink-2) }
+.tile .d { font-size: 12px; color: var(--ink-3); margin-top: 4px }
+.tile.alert .v { color: var(--crit) }
+/* stack bars */
+.stack { display: flex; flex-direction: column; gap: 22px }
+.barrow .head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; flex-wrap: wrap }
+.barrow .head b { font-weight: 600 }
+.bar { display: flex; gap: 2px; height: 34px; border-radius: 8px; overflow: hidden }
+.bar > div { height: 100%; position: relative; min-width: 3px; transition: filter .15s }
+.bar > div:first-child { border-radius: 8px 0 0 8px } .bar > div:last-child { border-radius: 0 8px 8px 0 }
+.bar > div:hover { filter: brightness(1.08) }
+.bar .ovf { background: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 7px); border: 1px dashed var(--ink-3) }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13px; color: var(--ink-2) }
+.legend span { display: inline-flex; align-items: center; gap: 7px }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none }
+.legend b { color: var(--ink); font-weight: 500 }
+/* treemap */
+.tm { position: relative; width: 100%; aspect-ratio: 2.1 / 1; min-height: 300px }
+.tm .cell { position: absolute; padding: 1px }
+.tm .cell > div { width: 100%; height: 100%; border-radius: 6px; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; cursor: default; transition: transform .12s }
+.tm .cell > div:hover { outline: 2px solid var(--ink); outline-offset: -2px }
+.tm .n { font-weight: 600; font-size: 13.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tm .m { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.scale { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap }
+.scale i { width: 26px; height: 10px; border-radius: 2px; display: inline-block }
+/* findings */
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px }
+.pill { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; min-height: 36px }
+.pill.on { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+.findings { display: grid; gap: 10px }
+details.f { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow) }
+details.f > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; min-height: 44px }
+details.f > summary::-webkit-details-marker { display: none }
+details.f > summary .t { font-weight: 500 }
+details.f > summary .chev { color: var(--ink-3); transition: transform .15s; margin-top: 3px }
+details.f[open] > summary .chev { transform: rotate(90deg) }
+details.f .body { padding: 0 16px 16px 16px; display: grid; gap: 10px; font-size: 14px }
+details.f .body .ev { color: var(--ink-2); overflow-wrap: anywhere }
+details.f .fix { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px }
+details.f .fix b { color: var(--accent) }
+.sev { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap }
+.sev.p0 { color: var(--crit); background: var(--crit-bg) } .sev.p1 { color: var(--warn); background: var(--warn-bg) } .sev.p2 { color: var(--info); background: var(--info-bg) }
+.badge { font-size: 11.5px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; margin-left: 8px; white-space: nowrap; vertical-align: 1px }
+.badge.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent) }
+/* lifecycle */
+.flow { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; counter-reset: step }
+.ev { position: relative }
+.evnode { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; height: 100%; box-shadow: var(--shadow) }
+.evnode h4 { margin: 0 0 2px; font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px }
+.evnode h4 .c { font-weight: 500; color: var(--ink-3); font-size: 12.5px }
+.evnode .when { font-size: 12px; color: var(--ink-3); margin-bottom: 10px }
+.hk { display: flex; flex-direction: column; gap: 5px }
+.hk span { font-size: 12.5px; padding: 4px 8px; border-radius: 6px; background: var(--chip); color: var(--ink-2); overflow-wrap: anywhere; line-height: 1.45 }
+.hk span.beh { background: var(--warn-bg); color: var(--warn) }
+.hk span.beh.doc { background: var(--good-bg); color: var(--good) }
+.hk span small { display: block; opacity: .8; font-size: 11.5px }
+/* owners */
+.owners { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px }
+.owner h4 { margin: 0; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px }
+.owner .cnt { font-size: 26px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums }
+.owner .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; max-height: 120px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent) }
+.chip { font-size: 12px; background: var(--chip); color: var(--ink-2); border-radius: 6px; padding: 2px 8px }
+.chip.hot { background: var(--crit-bg); color: var(--crit) }
+.chip.own { background: var(--good-bg); color: var(--good) }
+/* conflicts */
+.pair { display: grid; grid-template-columns: 1fr 44px 1fr; align-items: stretch; margin-bottom: 14px }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr } .pair .vs { height: 28px } }
+.pair .side { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow) }
+.pair .side h5 { margin: 0 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); font-weight: 500 }
+.pair .vs { display: grid; place-items: center; color: var(--crit); font-weight: 600; font-size: 13px }
+.rule { padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 13.5px } .rule:last-child { border: 0; padding-bottom: 0 }
+.rule .w { font-size: 11.5px; font-weight: 600; margin-right: 6px }
+.rule .w.no { color: var(--crit) } .rule .w.yes { color: var(--good) }
+.rule .s { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px }
+/* explorer */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; overflow-x: auto }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; font: inherit; font-size: 14px; color: var(--ink-2); cursor: pointer; margin-bottom: -1px; min-height: 44px; white-space: nowrap }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 500 }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px }
+.toolbar input { flex: 1; min-width: 200px }
+input[type=search], select { font: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); min-height: 42px }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px }
+th { text-align: left; color: var(--ink-3); font-weight: 500; font-size: 12px; border-bottom: 1px solid var(--line); padding: 10px 12px; white-space: nowrap }
+td { border-bottom: 1px solid var(--line-2); padding: 10px 12px; vertical-align: top; overflow-wrap: anywhere }
+tr:last-child td { border-bottom: 0 }
+td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap }
+tr.row { cursor: pointer } tr.row:hover td { background: var(--chip) }
+.more { margin-top: 10px; font: inherit; font-size: 14px; background: var(--chip); border: 0; border-radius: 10px; padding: 10px 16px; color: var(--ink); cursor: pointer; min-height: 42px }
+.empty { padding: 28px; text-align: center; color: var(--ink-3) }
+#tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12.5px; padding: 8px 10px; border-radius: 8px; max-width: 320px; opacity: 0; transition: opacity .1s; line-height: 1.5 }
+#tip b { font-weight: 600 }
+footer { margin-top: 48px; color: var(--ink-3); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 16px }
+</style>
+</head>
+<body>
+<div class="top"><div class="wrap">
+  <div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21s-7-4.4-9.2-9A5.2 5.2 0 0 1 12 6.5 5.2 5.2 0 0 1 21.2 12C19 16.6 12 21 12 21z"/><path d="M7 12h3l1.5-2.5L13.5 15l1.5-3h2"/></svg>Context Doctor</div>
+  <nav id="nav"></nav>
+  <button class="iconbtn" id="theme"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+</div></div>
+<main class="wrap">
+  <div class="hero">
+    <div class="card score" id="score"></div>
+    <div>
+      <div class="eyebrow" id="meta"></div>
+      <h1 id="h1" style="font-size:30px;letter-spacing:-.02em;margin:4px 0 6px;font-weight:600"></h1>
+      <p class="lede" id="lede"></p>
+      <div class="tiles" id="tiles"></div>
+    </div>
+  </div>
+  <section id="receive"><div class="eyebrow" data-t="s1e"></div><h2 data-t="s1h"></h2><p class="lede" id="s1l"></p><div class="card stack" id="stack"></div></section>
+  <section id="weight"><div class="eyebrow" data-t="s2e"></div><h2 data-t="s2h"></h2><p class="lede" data-t="s2l"></p><div class="card"><div class="tm" id="tm"></div><div class="scale" id="tmscale" style="margin-top:12px"></div></div></section>
+  <section id="findings"><div class="eyebrow" data-t="s3e"></div><h2 data-t="s3h"></h2><p class="lede" data-t="s3l"></p><div class="filters" id="ffilters"></div><div class="findings" id="flist"></div></section>
+  <section id="hooks"><div class="eyebrow" data-t="s4e"></div><h2 data-t="s4h"></h2><p class="lede" data-t="s4l"></p><div class="flow" id="flow"></div></section>
+  <section id="owners"><div class="eyebrow" data-t="s5e"></div><h2 data-t="s5h"></h2><p class="lede" data-t="s5l"></p><div class="owners" id="ownerGrid"></div></section>
+  <section id="conflicts"><div class="eyebrow" data-t="s6e"></div><h2 data-t="s6h"></h2><p class="lede" data-t="s6l"></p><div id="pairs"></div></section>
+  <section id="explore"><div class="eyebrow" data-t="s7e"></div><h2 data-t="s7h"></h2><div class="tabs" id="xtabs"></div><div id="xbody"></div></section>
+  <footer id="foot"></footer>
+</main>
+<div id="tip" role="tooltip"></div>
+<script>
+const R = /*__DATA__*/null
+const TH = R.lang === 'th'
+const I = TH ? {
+  nav: ['สิ่งที่โมเดลได้รับ', 'น้ำหนัก plugin', 'ปัญหา', 'Hooks', 'แย่งงาน', 'ข้อขัดแย้ง', 'สำรวจ'], theme: 'สลับธีม',
+  h1: 'context ของ Claude Code ในโปรเจกต์นี้', lede: 'ทุกอย่างที่ถูกส่งให้โมเดลก่อนมันเริ่มคิด: memory ที่โหลดทุกครั้ง, รายการ skill, คำอธิบาย agent, hook ที่ทำงานเงียบ ๆ และคำสั่งจาก MCP · ตัวเลขเป็นค่าประมาณ',
+  scanned: 'สแกน', health: 'Context health', bands: ['ดีเยี่ยม', 'ดี', 'พอใช้', 'ต้องปรับมาก', 'วิกฤต'],
+  fromAudit: d => `คะแนนจาก <code>/context-doctor:audit</code> · ${d}`, autoScore: 'คะแนนอัตโนมัติ (ประมาณ) · รัน <code>/context-doctor:audit</code> เพื่อให้คะแนนที่ตรวจแล้ว',
+  tiles: ['tokens โหลดทุกครั้ง', 'skills + commands', 'agent types', 'hook เปลี่ยนพฤติกรรม', 'MCP มี secret plaintext', 'ปัญหาที่พบ'],
+  tileD: (m, p, a, h, s, v) => [`${m} ไฟล์ memory`, `≈${p}% ล้นงบ listing`, `${a} ตัวสั่งให้ใช้ทันที`, `ที่โมเดลไม่รู้ จาก ${h} hooks`, `จาก ${s} servers`, `${v} ข้อตรวจด้วยมือแล้ว`],
+  s1e: '01 · สิ่งที่โมเดลได้รับ', s1h: 'context stack', s1l: b => `แถบบนคือสิ่งที่โหลดทุก session · แถบล่างคือ listing ของ skill: Claude Code มีที่ราว ${b} tokens ส่วนที่เกินถูกตัด description เหลือแค่ชื่อ โมเดลจึงไม่รู้ว่าควรใช้เมื่อไร`,
+  always: 'โหลดทุกครั้ง', listing: 'Skill listing', need: (a, b) => `ต้องใช้ ≈${a} · มีที่ ≈${b} tokens`, fits: 'แสดงได้', withDesc: 'มี description', over: 'ล้นงบ', overTip: t => `≈${t} tokens ของ description ถูกตัดทิ้ง · เหลือแค่ชื่อ`, bareOnly: 'ถูกตัดเหลือแค่ชื่อ', viaImport: '@import จาก',
+  s2e: '02 · น้ำหนัก vs การใช้งานจริง', s2h: 'plugin ไหนกิน listing แต่ไม่เคยถูกใช้', s2l: 'ขนาดกล่อง = token ใน listing · สี = สัดส่วนที่เคยถูกเรียกจริงใน transcript (จาง = ไม่เคยใช้) · ชี้เมาส์เพื่อดูรายละเอียด',
+  usedOf: (u, t) => `ใช้ ${u}/${t}`, usedShare: 'สัดส่วนที่เคยใช้จริง', never: 'ไม่เคยใช้', fromT: f => `จาก transcript ${f} ไฟล์`, noUsage: 'ยังไม่มีข้อมูลการใช้งาน: รัน <code>/context-doctor-usage</code> หรือ <code>scan.mjs --usage</code> แล้วเปิดใหม่',
+  tmTip: (g, s, a) => `listing ≈${g} tokens · ${s} skills/commands · ${a} agents`, pressureN: k => `สั่งให้ใช้ทันที ${k} ตัว`,
+  s3e: '03 · ปัญหาและวิธีแก้', s3h: 'เรียงจากรุนแรงไปน้อย', s3l: '"ตรวจด้วยมือ" = เปิดอ่านต้นฉบับแล้ว · "อัตโนมัติ" = จับจากคำสำคัญ · เริ่มแก้ด้วย /context-doctor:audit',
+  all: 'ทั้งหมด', sev: { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' }, verified: 'ตรวจด้วยมือ', auto: 'อัตโนมัติ', fix: 'แก้', none: 'ไม่มี',
+  s4e: '04 · Hooks ตามวงจร session', s4h: 'อะไรทำงานเงียบ ๆ ระหว่างแต่ละขั้น', s4l: 'hook รันนอกโมเดล โมเดลเห็นแค่ผลของมัน · ส้ม = เปลี่ยนพฤติกรรม (แก้คำสั่ง ย่อผล ฉีดข้อความ จัด format deny) โดยไม่ได้บอกโมเดล · เขียว = บอกไว้ใน memory แล้ว · เทา = บันทึกหรือแจ้งเตือนเท่านั้น',
+  events: { SessionStart: 'เปิด session', UserPromptSubmit: 'ผู้ใช้ส่งข้อความ', PreToolUse: 'ก่อนเรียก tool', PermissionRequest: 'ขอสิทธิ์', PostToolUse: 'หลัง tool ทำงาน', PostToolUseFailure: 'tool ล้มเหลว', SubagentStart: 'agent เริ่ม', SubagentStop: 'agent จบ', Notification: 'แจ้งเตือน', PreCompact: 'ก่อน compact', Stop: 'จบ turn', SessionEnd: 'ปิด session' },
+  s5e: '05 · ใครเป็นเจ้าของงานไหน', s5h: 'งานเดียว หลายตัวแย่งกันรับ', s5l: 'นับจากชื่อและประโยคแรกของ description · แดง = สั่งให้ใช้ทันที · เขียว = เคยถูกใช้จริง · งานที่ดีมีเจ้าของตัวเดียวที่เขียนไว้ใน CLAUDE.md',
+  claim: (a) => `ตัวรับงานนี้ · ${a} สั่งให้ใช้ทันที`,
+  s6e: '06 · กฎที่ขัดกัน', s6h: 'กฎที่โหลดทุกครั้ง ปะทะ skill/agent', s6l: 'จับอัตโนมัติจากคำสำคัญ จึงมีที่จับผิดปน · ข้อที่ตรวจแล้วว่าไม่ขัด เพิ่มลง ~/.claude/context-doctor/dismissed.json · ข้อที่ขัดจริงใช้ /context-doctor:harmonize',
+  alwaysSide: 'โหลดทุกครั้ง', otherSide: 'skill / agent ที่สั่งกลับกัน', andMore: k => `และอีก ${k} แหล่ง`, line: 'บรรทัด', type: { never: 'ห้าม', must: 'ต้องทำ', trigger: 'ทริกเกอร์' },
+  s7e: '07 · สำรวจ', s7h: 'ทุกอย่างที่สแกนได้', tabs: ['Skills / Agents', 'กฎ', 'Plugins', 'MCP', 'ชื่อซ้ำ'],
+  search: 'ค้นชื่อหรือ description', searchRule: 'ค้นกฎ เช่น commit, deploy', allKinds: 'ทุกชนิด', allSrc: 'ทุกแหล่ง', allTypes: 'ทุกประเภท', onlyAlways: 'เฉพาะที่โหลดทุกครั้ง', filt: ['ทั้งหมด', 'สั่งให้ใช้ทันที', 'เคยใช้จริง', 'ไม่มี description'],
+  cols: ['ชื่อ', 'description', 'tokens', 'กฎ'], rcols: ['ประเภท', 'กฎ', 'แหล่ง'], off: 'ปิด', on: 'เปิด', pressure: 'สั่งให้ใช้ทันที', usedChip: 'เคยใช้', noDesc: 'ไม่มี description', noRules: 'ไม่พบกฎ', notFound: 'ไม่พบ', more: k => `แสดงเพิ่ม (เหลือ ${k})`, alwaysTag: 'ทุกครั้ง',
+  pcols: ['plugin', 'scope', 'skills', 'cmds', 'agents', 'hooks', 'สถานะ'], stale: k => `ค้าง ${k} เวอร์ชัน`, pluginsNote: 'เปิด/ปิดได้จาก <code>/context-doctor-plugins</code> หรือ <code>/context-doctor:distill</code>',
+  mcols: ['server', 'แหล่ง', 'เชื่อมไปที่', 'หมายเหตุ'], plain: 'secret plaintext', offProj: 'ปิดในโปรเจกต์', mcpNote: 'คำสั่ง (server instructions) ของ MCP ไม่ได้อยู่ในไฟล์ ดูได้จาก <code>/context-doctor-prompt</code>',
+  dcols: ['ชื่อ', 'มาจาก'], foot: 'สร้างโดย Context Doctor · token เป็นค่าประมาณ (ปรับได้ใน ~/.claude/context-doctor/config.json) · ไฟล์นี้อยู่ในเครื่องเท่านั้น',
+} : {
+  nav: ['What the model gets', 'Plugin weight', 'Findings', 'Hooks', 'Owners', 'Conflicts', 'Explore'], theme: 'Toggle theme',
+  h1: "Claude Code's context in this project", lede: 'Everything sent to the model before it starts thinking: always-loaded memory, the skill listing, agent descriptions, hooks that act silently, and MCP instructions. Numbers are estimates.',
+  scanned: 'scanned', health: 'Context health', bands: ['Excellent', 'Good', 'Acceptable', 'Poor', 'Critical'],
+  fromAudit: d => `Score from <code>/context-doctor:audit</code> · ${d}`, autoScore: 'Automatic estimate · run <code>/context-doctor:audit</code> for a verified score',
+  tiles: ['tokens always loaded', 'skills + commands', 'agent types', 'behavior-changing hooks', 'MCP with plaintext secret', 'findings'],
+  tileD: (m, p, a, h, s, v) => [`${m} memory files`, `≈${p}% over the listing budget`, `${a} with pressure wording`, `undocumented, of ${h} hooks`, `of ${s} servers`, `${v} hand-verified`],
+  s1e: '01 · What the model gets', s1h: 'Context stack', s1l: b => `Top: what loads in every session. Bottom: the skill listing — Claude Code keeps about ${b} tokens; past that, descriptions are dropped and skills arrive as bare names, so the model can't tell when to use them.`,
+  always: 'Always loaded', listing: 'Skill listing', need: (a, b) => `needs ≈${a} · fits ≈${b} tokens`, fits: 'fits', withDesc: 'with description', over: 'overflow', overTip: t => `≈${t} tokens of descriptions dropped · bare names only`, bareOnly: 'dropped to bare names', viaImport: '@import from',
+  s2e: '02 · Weight vs real use', s2h: 'Which plugins fill the listing without being used', s2l: 'Box size = listing tokens · color = share of its skills/agents actually invoked in transcripts (faint = never) · hover for details',
+  usedOf: (u, t) => `used ${u}/${t}`, usedShare: 'share used', never: 'never', fromT: f => `from ${f} transcripts`, noUsage: 'No usage data yet: run <code>/context-doctor-usage</code> or <code>scan.mjs --usage</code>, then reopen.',
+  tmTip: (g, s, a) => `listing ≈${g} tokens · ${s} skills/commands · ${a} agents`, pressureN: k => `${k} with pressure wording`,
+  s3e: '03 · Findings', s3h: 'Most severe first', s3l: '"Verified" = read at the source · "Automatic" = keyword match · start fixing with /context-doctor:audit',
+  all: 'All', sev: { high: 'High', medium: 'Medium', low: 'Low' }, verified: 'verified', auto: 'automatic', fix: 'Fix', none: 'None',
+  s4e: '04 · Hooks across the session', s4h: 'What runs silently at each step', s4l: 'Hooks run outside the model; it sees only their effect · orange = changes behavior (rewrites, compresses, injects, formats, denies) without telling the model · green = documented in memory · grey = logging or notifications only',
+  events: { SessionStart: 'session opens', UserPromptSubmit: 'user sends a prompt', PreToolUse: 'before a tool', PermissionRequest: 'permission asked', PostToolUse: 'after a tool', PostToolUseFailure: 'tool failed', SubagentStart: 'agent starts', SubagentStop: 'agent ends', Notification: 'notification', PreCompact: 'before compaction', Stop: 'turn ends', SessionEnd: 'session closes' },
+  s5e: '05 · Who owns which job', s5h: 'One job, many claimants', s5l: 'Matched on name and the first sentence of the description · red = pressure wording · green = actually used · a healthy job has one owner, written in CLAUDE.md',
+  claim: (a) => `claim this job · ${a} with pressure wording`,
+  s6e: '06 · Conflicting rules', s6h: 'Always-loaded rules vs skills/agents', s6l: 'Keyword-matched candidates, so some are false positives · add ruled-out pairs to ~/.claude/context-doctor/dismissed.json · resolve real ones with /context-doctor:harmonize',
+  alwaysSide: 'Always loaded', otherSide: 'Skill / agent saying the opposite', andMore: k => `and ${k} more`, line: 'line', type: { never: 'never', must: 'must', trigger: 'trigger' },
+  s7e: '07 · Explore', s7h: 'Everything the scan found', tabs: ['Skills / Agents', 'Rules', 'Plugins', 'MCP', 'Duplicates'],
+  search: 'Search name or description', searchRule: 'Search rules, e.g. commit, deploy', allKinds: 'All kinds', allSrc: 'All sources', allTypes: 'All types', onlyAlways: 'Always loaded only', filt: ['All', 'Pressure wording', 'Actually used', 'No description'],
+  cols: ['Name', 'Description', 'tokens', 'rules'], rcols: ['Type', 'Rule', 'Source'], off: 'off', on: 'on', pressure: 'pressure', usedChip: 'used', noDesc: 'no description', noRules: 'no rules found', notFound: 'Nothing found', more: k => `Show more (${k} left)`, alwaysTag: 'always',
+  pcols: ['plugin', 'scope', 'skills', 'cmds', 'agents', 'hooks', 'status'], stale: k => `${k} stale versions`, pluginsNote: 'Toggle with <code>/context-doctor-plugins</code> or <code>/context-doctor:distill</code>',
+  mcols: ['server', 'source', 'target', 'notes'], plain: 'plaintext secret', offProj: 'off in project', mcpNote: 'MCP server instructions are not on disk; see them with <code>/context-doctor-prompt</code>',
+  dcols: ['Name', 'From'], foot: 'Generated by Context Doctor · token counts are estimates (tune in ~/.claude/context-doctor/config.json) · this file stays on your machine',
+}
+const $ = (s, el = document) => el.querySelector(s)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const LOC = TH ? 'th-TH' : 'en-US'
+const fmt = x => Number(x || 0).toLocaleString(LOC)
+const k = x => x >= 1000 ? (x / 1000).toFixed(x >= 10000 ? 0 : 1) + 'k' : String(x)
+const short = f => { const p = f.split('/'); return /^(CLAUDE|MEMORY|AGENTS)\.md$/.test(p.at(-1)) ? p.slice(-2).join('/') : p.at(-1) }
+const when = t => new Date(t).toLocaleString(LOC, { dateStyle: 'medium', timeStyle: 'short' })
+const sevCls = s => ({ high: 'p0', medium: 'p1', low: 'p2' }[s])
+document.documentElement.lang = R.lang
+document.querySelectorAll('[data-t]').forEach(el => { el.textContent = I[el.dataset.t] })
+$('#nav').innerHTML = ['receive', 'weight', 'findings', 'hooks', 'owners', 'conflicts', 'explore'].map((id, i) => `<a href="#${id}">${I.nav[i]}</a>`).join('')
+$('#h1').textContent = I.h1; $('#lede').textContent = I.lede; $('#s1l').textContent = I.s1l(fmt(R.listingBudget))
+$('#theme').title = I.theme; $('#theme').setAttribute('aria-label', I.theme)
+$('#meta').textContent = `${R.project} · ${I.scanned} ${when(R.generatedAt)}`
+$('#foot').textContent = I.foot
+{
+  const root = document.documentElement
+  try { const t = localStorage.getItem('cd-theme'); if (t) root.dataset.theme = t } catch {}
+  $('#theme').onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+    root.dataset.theme = dark ? 'light' : 'dark'
+    try { localStorage.setItem('cd-theme', root.dataset.theme) } catch {}
+  }
+  const tip = $('#tip')
+  document.addEventListener('mousemove', e => {
+    const t = e.target.closest('[data-tip]')
+    if (!t) { tip.style.opacity = 0; return }
+    tip.innerHTML = t.dataset.tip
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'
+    tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + 'px'
+    tip.style.opacity = 1
+  })
+}
+const S = R.stats
+const usedNames = new Set(R.usage ? R.usage.used : [])
+const isUsed = i => usedNames.has(i.name)
+
+// score
+{
+  const DIMS = [['budget', 'Budget'], ['routing', 'Routing'], ['consistency', 'Consistency'], ['transparency', 'Transparency'], ['safety', 'Safety']]
+  const sc = R.audit ? R.audit.scores : R.autoScores
+  const total = DIMS.reduce((a, [d]) => a + (sc[d] ?? 0), 0)
+  const bi = total >= 18 ? 0 : total >= 14 ? 1 : total >= 10 ? 2 : total >= 6 ? 3 : 4
+  const bc = ['good', 'good', 'warn', 'warn', 'crit'][bi]
+  $('#score').innerHTML = `<div class="eyebrow">${I.health}</div><div class="big"><b>${total}</b><span>/ 20</span></div>
+    <div><span class="band" style="color:var(--${bc});background:var(--${bc}-bg)">${I.bands[bi]}</span></div>
+    <div style="display:grid;gap:9px">${DIMS.map(([d, l]) => `<div class="meter" data-tip="<b>${l}</b> ${sc[d]}/4${R.audit?.keyFindings?.[d] ? '<br>' + esc(R.audit.keyFindings[d]) : ''}"><span>${l}</span><span class="segs">${[1, 2, 3, 4].map(x => `<i class="${x <= sc[d] ? 'on' : ''}"></i>`).join('')}</span><span class="num faint" style="text-align:right">${sc[d]}/4</span></div>`).join('')}</div>
+    <div class="src">${R.audit ? I.fromAudit(when(R.audit.generatedAt)) : I.autoScore}</div>`
+}
+// tiles
+{
+  const lost = Math.max(0, 1 - R.listingBudget / Math.max(1, S.listingTokensIfFull))
+  const undoc = R.behaviorHooks.filter(h => !h.documented).length
+  const secrets = R.mcp.filter(m => m.secrets.length).length
+  const aggr = R.items.filter(i => i.kind === 'agent' && i.aggressive && !i.disabled).length
+  const vals = [`≈${k(S.alwaysTokens)}`, fmt(S.skills + S.commands), fmt(S.agents), String(undoc), String(secrets), String(R.findings.length)]
+  const alert = [S.alwaysTokens > 8000, lost > 0.3, false, undoc > 0, secrets > 0, false]
+  const d = I.tileD(S.memoryFiles, Math.round(lost * 100), aggr, S.hooks, S.mcp, R.findings.filter(f => f.verified).length)
+  $('#tiles').innerHTML = vals.map((v, i) => `<div class="tile ${alert[i] ? 'alert' : ''}"><span class="v">${v}</span><span class="k">${I.tiles[i]}</span><span class="d">${d[i]}</span></div>`).join('')
+}
+// stack
+{
+  const cols = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)']
+  const segs = [...(R.systemPromptTokens ? [{ label: 'system prompt', tokens: R.systemPromptTokens, note: '/context-doctor-prompt', imp: false }] : []),
+    ...R.memory.map(m => ({ label: short(m.file), tokens: m.tokens, note: `${m.scope}${m.via !== 'auto' ? ` · ${I.viaImport} ${short(m.via)}` : ''}`, imp: m.via !== 'auto' }))]
+  const tot = segs.reduce((a, s) => a + s.tokens, 0) || 1
+  const full = S.listingTokensIfFull, fit = Math.min(full, R.listingBudget)
+  const hatch = 'repeating-linear-gradient(45deg,var(--hatch) 0 2px,transparent 2px 5px)'
+  $('#stack').innerHTML = `<div class="barrow"><div class="head"><b>${I.always}</b><span class="num muted">≈${fmt(tot)} tokens</span></div>
+      <div class="bar">${segs.map((s, i) => `<div style="flex:${s.tokens};background:${cols[i % 6]}" data-tip="<b>${esc(s.label)}</b><br>≈${fmt(s.tokens)} tokens · ${Math.round(s.tokens / tot * 100)}%<br>${esc(s.note)}"></div>`).join('')}</div>
+      <div class="legend">${segs.map((s, i) => `<span><i style="background:${cols[i % 6]}"></i><b>${esc(s.label)}</b> ${k(s.tokens)}${s.imp ? ' <span class="faint">(@import)</span>' : ''}</span>`).join('')}</div></div>
+    <div class="barrow"><div class="head"><b>${I.listing}</b><span class="num muted">${I.need(fmt(full), fmt(R.listingBudget))}</span></div>
+      <div class="bar"><div style="flex:${fit || 1};background:var(--accent)" data-tip="<b>${I.fits}</b><br>≈${fmt(fit)} tokens"></div>${full > fit ? `<div class="ovf" style="flex:${full - fit}" data-tip="<b>${I.over}</b><br>${I.overTip(fmt(full - fit))}"></div>` : ''}</div>
+      <div class="legend"><span><i style="background:var(--accent)"></i><b>${I.withDesc}</b> ${k(fit)}</span>${full > fit ? `<span><i style="background:${hatch};border:1px dashed var(--ink-3)"></i><b>${I.bareOnly}</b> ${k(full - fit)} · ${Math.round((full - fit) / full * 100)}%</span>` : ''}</div></div>`
+}
+// treemap
+{
+  const groups = {}
+  for (const i of R.items) {
+    if (i.disabled) continue
+    const g = (groups[i.plugin || i.source] ||= { name: i.plugin || i.source, tokens: 0, total: 0, used: 0, skills: 0, agents: 0, aggressive: 0 })
+    g.total++; if (isUsed(i)) g.used++
+    if (i.kind === 'agent') g.agents++; else { g.skills++; g.tokens += i.descTokens + Math.ceil(i.name.length / 2.5) + 2 }
+    if (i.aggressive) g.aggressive++
+  }
+  const data = Object.values(groups).filter(g => g.tokens > 0).sort((a, b) => b.tokens - a.tokens)
+  const steps = [['var(--q150)', I.never], ['var(--q250)', '≤5%'], ['var(--q350)', '≤25%'], ['var(--q450)', '≤60%'], ['var(--q550)', '>60%']]
+  const bucket = r => r === 0 ? 0 : r <= 0.05 ? 1 : r <= 0.25 ? 2 : r <= 0.6 ? 3 : 4
+  function squarify(list, W, H) {
+    const sum = list.reduce((a, d) => a + d.tokens, 0) || 1, sc = W * H / sum
+    const its = list.map(d => ({ d, area: d.tokens * sc })), out = []
+    let x = 0, y = 0, w = W, h = H, row = []
+    const worst = (r, len) => { const s = r.reduce((a, q) => a + q.area, 0), mx = Math.max(...r.map(q => q.area)), mn = Math.min(...r.map(q => q.area)); return Math.max(len * len * mx / (s * s), (s * s) / (len * len * mn)) }
+    const lay = r => {
+      const s = r.reduce((a, q) => a + q.area, 0)
+      if (w >= h) { const cw = s / h; let cy = y; for (const q of r) { const rh = q.area / cw; out.push({ ...q, x, y: cy, w: cw, h: rh }); cy += rh } x += cw; w -= cw }
+      else { const rh = s / w; let cx = x; for (const q of r) { const rw = q.area / rh; out.push({ ...q, x: cx, y, w: rw, h: rh }); cx += rw } y += rh; h -= rh }
+    }
+    let i = 0
+    while (i < its.length) { const len = Math.min(w, h); if (!row.length || worst([...row, its[i]], len) <= worst(row, len)) row.push(its[i++]); else { lay(row); row = [] } }
+    if (row.length) lay(row)
+    return out
+  }
+  const W = 210, H = 100
+  $('#tm').innerHTML = squarify(data, W, H).map(c => {
+    const g = c.d, b = R.usage ? bucket(g.total ? g.used / g.total : 0) : 1
+    const tip = `<b>${esc(g.name)}</b><br>${I.tmTip(fmt(g.tokens), g.skills, g.agents)}${R.usage ? '<br>' + I.usedOf(g.used, g.total) : ''}${g.aggressive ? '<br>' + I.pressureN(g.aggressive) : ''}`
+    const big = c.w > 18 && c.h > 14
+    return `<div class="cell" style="left:${c.x / W * 100}%;top:${c.y / H * 100}%;width:${c.w / W * 100}%;height:${c.h / H * 100}%"><div style="background:${steps[b][0]};color:${b <= 1 ? 'var(--ink)' : 'var(--qt-hi)'}" data-tip="${esc(tip)}">${c.w > 9 && c.h > 9 ? `<span class="n">${esc(g.name)}</span>` : ''}${big ? `<span class="m">≈${k(g.tokens)} tok</span><span class="m">${R.usage ? I.usedOf(g.used, g.total) : ''}</span>` : ''}</div></div>`
+  }).join('')
+  $('#tmscale').innerHTML = R.usage
+    ? `<span style="margin-right:6px">${I.usedShare}</span>${steps.map(s => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:10px"><i style="background:${s[0]}"></i>${s[1]}</span>`).join('')}<span class="faint">· ${I.fromT(R.usage.files)}</span>`
+    : `<span class="faint">${I.noUsage}</span>`
+}
+// findings
+{
+  let filter = 'all'
+  const draw = () => {
+    const list = R.findings.filter(f => filter === 'all' || (filter === 'verified' ? f.verified : f.severity === filter))
+    $('#flist').innerHTML = list.map((f, i) => `<details class="f" ${i < 3 && filter === 'all' ? 'open' : ''}><summary><span class="sev ${sevCls(f.severity)}">${I.sev[f.severity]}${f.code ? ' · ' + f.code : ''}</span><span class="t">${esc(f.title)}<span class="badge ${f.verified ? 'ok' : ''}">${f.verified ? I.verified : I.auto}</span></span><svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></summary><div class="body"><div class="ev">${esc(f.detail)}</div><div class="fix"><b>${I.fix}:</b> ${esc(f.fix)}</div></div></details>`).join('') || `<div class="empty">${I.none}</div>`
+  }
+  const cnt = s => R.findings.filter(f => f.severity === s).length
+  $('#ffilters').innerHTML = [['all', `${I.all} ${R.findings.length}`], ['high', `${I.sev.high} ${cnt('high')}`], ['medium', `${I.sev.medium} ${cnt('medium')}`], ['low', `${I.sev.low} ${cnt('low')}`], ['verified', I.verified]]
+    .map(([v, l]) => `<button class="pill ${v === 'all' ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')
+  $('#ffilters').onclick = e => { const b = e.target.closest('button'); if (!b) return; filter = b.dataset.v; document.querySelectorAll('#ffilters .pill').forEach(p => p.classList.toggle('on', p === b)); draw() }
+  draw()
+}
+// lifecycle
+{
+  const beh = new Map(R.behaviorHooks.map(h => [`${h.event}|${h.id || h.command}|${h.source}`, h]))
+  const label = h => h.id || h.command.slice(0, 60)
+  const events = Object.keys(I.events).filter(e => R.hooks.some(h => h.event === e))
+  $('#flow').innerHTML = events.map((e, idx) => {
+    const hs = R.hooks.filter(h => h.event === e)
+    return `<div class="ev"><div class="evnode"><h4><span>${idx + 1}. ${e}</span><span class="c">${hs.length}</span></h4><div class="when">${I.events[e]}</div><div class="hk">${hs.map(h => {
+      const b = beh.get(`${h.event}|${h.id || h.command}|${h.source}`)
+      return `<span class="${b ? 'beh' + (b.documented ? ' doc' : '') : ''}" data-tip="<b>${esc(label(h))}</b><br>${esc(h.source)} · matcher ${esc(h.matcher)}${h.description ? '<br>' + esc(h.description) : ''}">${esc(label(h))}<small>${esc(h.source.replace('settings ', ''))}${h.matcher !== '*' && h.matcher !== '.*' ? ' · ' + esc(h.matcher) : ''}</small></span>`
+    }).join('')}</div></div></div>`
+  }).join('') || `<div class="card empty">${I.none}</div>`
+}
+// owners
+$('#ownerGrid').innerHTML = R.topics.map(t => {
+  const its = [...t.items].sort((a, b) => (isUsed(b) - isUsed(a)) || (b.aggressive - a.aggressive))
+  return `<div class="card owner"><h4><span>${esc(t.topic)}</span><span class="sev ${sevCls(t.severity)}">${I.sev[t.severity]}</span></h4><div style="display:flex;align-items:baseline;gap:8px;margin-top:6px"><span class="cnt">${t.count}</span><span class="small muted">${I.claim(t.aggressive.length)}</span></div><div class="chips">${its.map(i => `<span class="chip ${isUsed(i) ? 'own' : i.aggressive ? 'hot' : ''}">${esc(i.name)}</span>`).join('')}</div></div>`
+}).join('') || `<div class="card empty">${I.none}</div>`
+// conflicts
+{
+  const rule = r => `<div class="rule"><span class="w ${r.type === 'never' ? 'no' : 'yes'}">${I.type[r.type]}</span>${esc(r.text)}<span class="s">${esc(r.source.includes('/') ? short(r.source) : r.source)}${r.line ? ` · ${I.line} ${r.line}` : ''}</span></div>`
+  $('#pairs').innerHTML = R.ruleConflicts.map(c => `<h3 style="font-size:16px;margin:22px 0 10px;font-weight:600">${esc(c.subject)}</h3>${c.pairs.map(p => `<div class="pair"><div class="side"><h5>${I.alwaysSide}</h5>${p.always.map(rule).join('')}</div><div class="vs">⇄</div><div class="side"><h5>${I.otherSide}</h5>${p.opposite.slice(0, 4).map(rule).join('')}${p.opposite.length > 4 ? `<div class="small faint" style="margin-top:6px">${I.andMore(p.opposite.length - 4)}</div>` : ''}</div></div>`).join('')}`).join('') || `<div class="card empty">${I.none}</div>`
+}
+// explorer
+{
+  const allRules = [...R.harnessRules, ...R.memory.flatMap(m => m.rules), ...R.items.filter(i => !i.disabled).flatMap(i => i.rules)]
+  const always = new Set(['Harness (system prompt)', ...R.memory.map(m => m.file)])
+  const TABS = ['items', 'rules', 'plugins', 'mcp', 'dups'], counts = [R.items.length, allRules.length, R.plugins.length, R.mcp.length, R.duplicates.length]
+  let tab = 'items'
+  const drawTabs = () => { $('#xtabs').innerHTML = TABS.map((v, i) => `<button class="${v === tab ? 'on' : ''}" data-v="${v}">${I.tabs[i]} ${fmt(counts[i])}</button>`).join('') }
+  $('#xtabs').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.v; drawTabs(); body() } }
+  const typeCell = t => `<span class="rule" style="padding:0;border:0"><span class="w ${t === 'never' ? 'no' : t === 'must' ? 'yes' : ''}">${I.type[t]}</span></span>`
+  function body() {
+    const X = $('#xbody')
+    if (tab === 'items') {
+      const srcs = [...new Set(R.items.map(i => i.plugin || i.source))]
+      X.innerHTML = `<div class="toolbar"><input type="search" id="iq" placeholder="${I.search}"><select id="ik"><option value="">${I.allKinds}</option><option>skill</option><option>command</option><option>agent</option></select><select id="ip"><option value="">${I.allSrc}</option>${srcs.map(p => `<option>${esc(p)}</option>`).join('')}</select><select id="ia">${['', 'aggr', 'used', 'nodesc'].map((v, i) => `<option value="${v}">${I.filt[i]}</option>`).join('')}</select></div><div class="tablewrap"><table><thead><tr><th>${I.cols[0]}</th><th>${I.cols[1]}</th><th style="text-align:right">${I.cols[2]}</th><th style="text-align:right">${I.cols[3]}</th></tr></thead><tbody id="ib"></tbody></table></div><button class="more" id="im"></button>`
+      let limit = 120, open = -1
+      const draw = () => {
+        const q = $('#iq').value.toLowerCase(), kk = $('#ik').value, p = $('#ip').value, a = $('#ia').value
+        const list = R.items.filter(i => (!kk || i.kind === kk) && (!p || (i.plugin || i.source) === p) && (!a || (a === 'aggr' ? i.aggressive : a === 'used' ? isUsed(i) : !i.description)) && (!q || (i.name + i.description).toLowerCase().includes(q)))
+        $('#ib').innerHTML = list.slice(0, limit).map(i => { const x = R.items.indexOf(i); return `<tr class="row" data-n="${x}"><td style="min-width:180px"><span class="mono">${esc(i.name)}</span><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"><span class="chip">${i.kind}</span>${i.disabled ? `<span class="chip">${I.off}</span>` : ''}${i.aggressive ? `<span class="chip hot">${I.pressure}</span>` : ''}${isUsed(i) ? `<span class="chip own">${I.usedChip}</span>` : ''}</div></td><td class="small muted">${esc(i.description) || `<span style="color:var(--crit)">${I.noDesc}</span>`}</td><td class="r small">${fmt(i.descTokens)} / ${fmt(i.bodyTokens)}</td><td class="r">${i.rules.length}</td></tr>${open === x ? `<tr><td colspan="4" style="background:var(--bg)"><div class="mono faint" style="margin-bottom:6px">${esc(i.file)}</div>${i.rules.slice(0, 50).map(r => `<div class="rule"><span class="w ${r.type === 'never' ? 'no' : 'yes'}">${I.type[r.type]}</span>${esc(r.text)}<span class="s">${I.line} ${r.line}</span></div>`).join('') || `<span class="faint">${I.noRules}</span>`}</td></tr>` : ''}` }).join('') || `<tr><td colspan="4" class="empty">${I.notFound}</td></tr>`
+        $('#im').style.display = list.length > limit ? '' : 'none'; $('#im').textContent = I.more(fmt(list.length - limit))
+      }
+      ;['iq', 'ik', 'ip', 'ia'].forEach(id => $('#' + id).addEventListener('input', () => { limit = 120; draw() }))
+      $('#im').onclick = () => { limit += 300; draw() }
+      $('#ib').onclick = e => { const tr = e.target.closest('tr.row'); if (tr) { const x = +tr.dataset.n; open = open === x ? -1 : x; draw() } }
+      draw()
+    } else if (tab === 'rules') {
+      X.innerHTML = `<div class="toolbar"><input type="search" id="rq" placeholder="${I.searchRule}"><select id="rt"><option value="">${I.allTypes}</option>${['never', 'must', 'trigger'].map(t => `<option value="${t}">${I.type[t]}</option>`).join('')}</select><select id="rs"><option value="">${I.allSrc}</option><option value="1">${I.onlyAlways}</option></select></div><div class="tablewrap"><table><thead><tr><th style="width:90px">${I.rcols[0]}</th><th>${I.rcols[1]}</th><th style="width:220px">${I.rcols[2]}</th></tr></thead><tbody id="rb"></tbody></table></div><button class="more" id="rm"></button>`
+      let limit = 150
+      const draw = () => {
+        const q = $('#rq').value.toLowerCase(), t = $('#rt').value, s = $('#rs').value
+        const list = allRules.filter(r => (!t || r.type === t) && (!s || always.has(r.source)) && (!q || (r.text + r.source).toLowerCase().includes(q)))
+        $('#rb').innerHTML = list.slice(0, limit).map(r => `<tr><td>${typeCell(r.type)}</td><td>${esc(r.text)}</td><td class="small faint">${esc(r.source.includes('/') ? short(r.source) : r.source)}${r.line ? ':' + r.line : ''}${always.has(r.source) ? ` · <b style="color:var(--accent)">${I.alwaysTag}</b>` : ''}</td></tr>`).join('') || `<tr><td colspan="3" class="empty">${I.notFound}</td></tr>`
+        $('#rm').style.display = list.length > limit ? '' : 'none'; $('#rm').textContent = I.more(fmt(list.length - limit))
+      }
+      ;['rq', 'rt', 'rs'].forEach(id => $('#' + id).addEventListener('input', () => { limit = 150; draw() }))
+      $('#rm').onclick = () => { limit += 400; draw() }
+      draw()
+    } else if (tab === 'plugins') {
+      X.innerHTML = `<div class="tablewrap"><table><thead><tr>${I.pcols.map((c, i) => `<th${i > 1 && i < 6 ? ' style="text-align:right"' : ''}>${c}</th>`).join('')}</tr></thead><tbody>${R.plugins.map(p => `<tr><td><span class="mono">${esc(p.name)}</span> <span class="faint small">${esc(p.version)}</span><div class="small muted">${esc(p.description.slice(0, 150))}</div></td><td class="small">${esc(p.scope)}</td><td class="r">${p.counts.skill ?? '–'}</td><td class="r">${p.counts.command ?? '–'}</td><td class="r">${p.counts.agent ?? '–'}</td><td class="r">${p.counts.hooks ?? '–'}</td><td class="small">${p.enabled ? `<span class="chip own">${I.on}</span>` : `<span class="chip">${I.off}</span>`}${p.orphanedVersions ? ` <span class="faint">${I.stale(p.orphanedVersions)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div><p class="small faint">${I.pluginsNote}</p>`
+    } else if (tab === 'mcp') {
+      X.innerHTML = `<div class="tablewrap"><table><thead><tr>${I.mcols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${R.mcp.map(m => `<tr><td class="mono">${esc(m.name)}</td><td class="small">${esc(m.source)}</td><td class="small mono faint">${esc(m.transport)} · ${esc(m.target)}</td><td class="small">${m.secrets.length ? `<span class="chip hot">${I.plain}: ${esc(m.secrets.join(', '))}</span>` : ''}${m.disabled ? ` <span class="chip">${I.offProj}</span>` : ''}</td></tr>`).join('')}</tbody></table></div><p class="small faint">${I.mcpNote}</p>`
+    } else {
+      X.innerHTML = `<div class="tablewrap"><table><thead><tr><th>${I.dcols[0]}</th><th>${I.dcols[1]}</th></tr></thead><tbody>${R.duplicates.map(d => `<tr><td class="mono">${esc(d.name)}</td><td class="small">${d.items.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`
+    }
+  }
+  drawTabs(); body()
+}
+</script>
+</body>
+</html>

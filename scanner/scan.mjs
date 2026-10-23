@@ -1,0 +1,579 @@
+#!/usr/bin/env node
+// Context Doctor scanner — reads every source that feeds Claude Code's context
+// (memory files, skills, commands, agents, plugins, hooks, MCP servers) and writes
+// report.json + report.html. Read-only except --set-plugin. No dependencies.
+//
+//   node scan.mjs [--project <dir>] [--out <dir>] [--lang en|th]
+//                 [--summary | --json | --usage [--all-projects] | --diff [--exit-code]
+//                  | --find <regex> | --plugins | --set-plugin <id> on|off | --print-lang]
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import { fileURLToPath } from 'node:url'
+
+const HOME = os.homedir()
+const CLAUDE = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(HOME, '.claude')
+const args = process.argv.slice(2)
+const argVal = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d }
+const PROJECT = path.resolve(argVal('--project', process.cwd()))
+const OUT = path.resolve(argVal('--out', path.join(CLAUDE, 'context-doctor')))
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+// ---------- helpers ----------
+const exists = p => { try { fs.accessSync(p); return true } catch { return false } }
+const isDir = p => { try { return fs.statSync(p).isDirectory() } catch { return false } }
+const readText = p => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
+const readJson = p => { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null } }
+const ls = p => { try { return fs.readdirSync(p) } catch { return [] } }
+const tilde = p => p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p
+const untilde = p => p && p.startsWith('~') ? path.join(HOME, p.slice(1)) : p
+const projectSlug = dir => dir.replace(/[^A-Za-z0-9]/g, '-')
+
+// ---------- config + language ----------
+// ~/.claude/context-doctor/config.json may override: lang, listingBudget, thaiTokensPerChar, otherCharsPerToken
+const userSettings = readJson(path.join(CLAUDE, 'settings.json')) || {}
+const CONFIG = readJson(path.join(OUT, 'config.json')) || {}
+const LANG = (() => {
+  const v = argVal('--lang') || process.env.CONTEXT_DOCTOR_LANG || CONFIG.lang || userSettings.language || ''
+  return /^th|thai|ไทย/i.test(v) ? 'th' : 'en'
+})()
+const T = (en, th) => (LANG === 'th' ? th : en)
+const LOCALE = T('en-US', 'th-TH')
+const n = x => Number(x || 0).toLocaleString(LOCALE)
+
+if (args.includes('--print-lang')) { console.log(LANG); process.exit(0) }
+
+// --set-plugin <id> on|off: write enabledPlugins in the project's .claude/settings.json (applies next session)
+if (args.includes('--set-plugin')) {
+  const id = argVal('--set-plugin'), on = args[args.indexOf('--set-plugin') + 2]
+  if (!id || !['on', 'off'].includes(on)) { console.error('usage: --set-plugin <id> on|off'); process.exit(2) }
+  const file = path.join(PROJECT, '.claude/settings.json')
+  const json = readJson(file) || {}
+  json.enabledPlugins = { ...(json.enabledPlugins || {}), [id]: on === 'on' }
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n')
+  console.log(`${id} → ${on} (${file})`)
+  process.exit(0)
+}
+
+// Token estimate calibrated against /context (within ~5% on mixed Thai/English files).
+// Thai script tokenizes far denser than Latin text, so it is counted separately.
+const THAI_TOKENS_PER_CHAR = CONFIG.thaiTokensPerChar ?? 1.44
+const OTHER_CHARS_PER_TOKEN = CONFIG.otherCharsPerToken ?? 2.46
+const thaiCount = s => (s.match(/[฀-๿]/g) || []).length
+function tokens(s) {
+  if (!s) return 0
+  const thai = thaiCount(s)
+  return Math.round(thai * THAI_TOKENS_PER_CHAR + (s.length - thai) / OTHER_CHARS_PER_TOKEN)
+}
+
+function frontmatter(text) {
+  if (!text || !text.startsWith('---')) return { meta: {}, body: text || '' }
+  const end = text.indexOf('\n---', 3)
+  if (end < 0) return { meta: {}, body: text }
+  const raw = text.slice(3, end).split('\n')
+  const body = text.slice(end + 4)
+  const meta = {}
+  for (let i = 0; i < raw.length; i++) {
+    const m = raw[i].match(/^([A-Za-z0-9_-]+):\s*(.*)$/)
+    if (!m) continue
+    let [, k, v] = m
+    if (v === '>' || v === '|' || v === '>-' || v === '|-' || v === '') {
+      const lines = []
+      while (i + 1 < raw.length && (/^\s+/.test(raw[i + 1]) || raw[i + 1] === '')) lines.push(raw[++i].trim())
+      v = lines.join(v.startsWith('|') ? '\n' : ' ').trim()
+    }
+    meta[k] = v.replace(/^["'](.*)["']$/s, '$1')
+  }
+  return { meta, body }
+}
+
+// ---------- rule extraction ----------
+// type: never | must | trigger
+const RULE_PATTERNS = [
+  { type: 'never', re: /ไม่ได้ ?(build|commit|push|deploy)|\b(NEVER|DO NOT|DON'T|Do not|Don't|Never|MUST NOT|must not|should not|Avoid)\b|ห้าม|อย่า(?!งไร|งน้อย|งเช่น|งละ)/ },
+  { type: 'must', re: /\b(MUST|ALWAYS|Always|REQUIRED|required to|IMPORTANT|CRITICAL|must)\b|ต้อง|ทุกครั้ง|เท่านั้น/ },
+  { type: 'trigger', re: /\b(PROACTIVELY|MUST BE USED|Use immediately|TRIGGER|Use when|Use this (skill|agent) when|Automatically activated)\b/i },
+]
+function extractRules(text, source, file, baseLine = 0) {
+  if (!text) return []
+  const out = []
+  let inCode = false
+  text.split('\n').forEach((line, i) => {
+    if (/^\s*```/.test(line)) { inCode = !inCode; return }
+    if (inCode) return
+    const t = line.replace(/^[\s>*#\-0-9.)]+/, '').trim()
+    if (t.length < 8 || t.length > 400) return
+    const p = RULE_PATTERNS.find(p => p.re.test(t))
+    if (p) out.push({ type: p.type, text: t, source, file: tilde(file), line: baseLine + i + 1 })
+  })
+  return out
+}
+
+// ---------- memory files (loaded every session) ----------
+const memory = []
+function addMemory(file, scope, via, seen = new Set()) {
+  if (!file || seen.has(file) || !exists(file)) return
+  seen.add(file)
+  const text = readText(file) || ''
+  memory.push({ file: tilde(file), scope, via, tokens: tokens(text), lines: text.split('\n').length, rules: extractRules(text, tilde(file), file) })
+  let inCode = false
+  for (const line of text.split('\n')) {
+    if (/^\s*```/.test(line)) { inCode = !inCode; continue }
+    if (inCode) continue
+    for (const m of line.matchAll(/(?:^|\s)@([~./A-Za-z0-9_-][^\s`)]*\.md)\b/g)) {
+      const p = m[1].startsWith('~') ? untilde(m[1]) : path.resolve(path.dirname(file), m[1])
+      addMemory(p, scope, tilde(file), seen)
+    }
+  }
+}
+const SCOPE = { user: T('user (all projects)', 'ผู้ใช้ (ทุกโปรเจกต์)'), project: T('project', 'โปรเจกต์'), parent: T('parent folder', 'โฟลเดอร์แม่'), rules: T('project rules', 'โปรเจกต์ (rules)'), auto: 'auto-memory' }
+addMemory(path.join(CLAUDE, 'CLAUDE.md'), SCOPE.user, 'auto')
+{
+  const chain = []
+  let d = PROJECT
+  while (d && d !== path.dirname(d) && d.startsWith(HOME) && d !== HOME) { chain.unshift(d); d = path.dirname(d) }
+  for (const dir of chain) for (const f of ['CLAUDE.md', 'CLAUDE.local.md', '.claude/CLAUDE.md']) addMemory(path.join(dir, f), dir === PROJECT ? SCOPE.project : SCOPE.parent, 'auto')
+  for (const f of ls(path.join(PROJECT, '.claude/rules'))) if (f.endsWith('.md')) addMemory(path.join(PROJECT, '.claude/rules', f), SCOPE.rules, 'auto')
+  addMemory(path.join(CLAUDE, 'projects', projectSlug(PROJECT), 'memory', 'MEMORY.md'), SCOPE.auto, 'auto')
+}
+const isUserScope = m => m.scope === SCOPE.user
+
+// ---------- settings ----------
+const settingsFiles = [
+  { scope: T('user', 'ผู้ใช้'), file: path.join(CLAUDE, 'settings.json') },
+  { scope: T('user (local)', 'ผู้ใช้ (local)'), file: path.join(CLAUDE, 'settings.local.json') },
+  { scope: T('project', 'โปรเจกต์'), file: path.join(PROJECT, '.claude/settings.json') },
+  { scope: T('project (local)', 'โปรเจกต์ (local)'), file: path.join(PROJECT, '.claude/settings.local.json') },
+].map(s => ({ ...s, json: readJson(s.file) })).filter(s => s.json)
+const enabledPlugins = {}, skillOverrides = {}
+for (const s of settingsFiles) { Object.assign(enabledPlugins, s.json.enabledPlugins || {}); Object.assign(skillOverrides, s.json.skillOverrides || {}) }
+
+// ---------- skills / commands / agents ----------
+const items = []
+const AGGRESSIVE = /PROACTIVELY|MUST BE USED|Use immediately|Automatically activated|ALWAYS use|always invoke/i
+// "no PROACTIVELY pressure", "remove MUST BE USED" describe the words, not use them
+const MENTIONS_ONLY = /\b(no|without|remove|removes|avoid|drop)\b[^.]{0,40}(PROACTIVELY|MUST BE USED)/i
+const SRC = { user: T('user', 'ผู้ใช้'), project: T('project', 'โปรเจกต์'), sync: 'claude.ai sync', plugin: 'plugin' }
+function addItem(kind, name, file, source, plugin) {
+  const text = readText(file)
+  if (text == null) return
+  const { meta, body } = frontmatter(text)
+  const desc = (meta.description || '').trim()
+  const short = meta.name || name
+  const full = plugin ? `${plugin}:${short}` : short
+  items.push({
+    kind, name: full, short, source, plugin: plugin || null, file: tilde(file),
+    description: desc, descTokens: tokens(desc), bodyTokens: tokens(body),
+    tools: meta.tools || meta['allowed-tools'] || null, model: meta.model || null,
+    aggressive: AGGRESSIVE.test(desc) && !MENTIONS_ONLY.test(desc),
+    disabled: skillOverrides[short] === 'off' || skillOverrides[full] === 'off' || meta['disable-model-invocation'] === 'true',
+    rules: extractRules(body, full, file, text.slice(0, text.length - body.length).split('\n').length - 1),
+  })
+}
+function findSkillDirs(dir, depth = 0, skip = []) {
+  if (!isDir(dir)) return []
+  if (exists(path.join(dir, 'SKILL.md'))) return [dir]
+  if (depth > 3) return []
+  return ls(dir).filter(x => !x.startsWith('.') && x !== 'node_modules' && !skip.includes(x)).flatMap(x => findSkillDirs(path.join(dir, x), depth + 1))
+}
+function mdFiles(dir, depth = 0) {
+  if (!isDir(dir) || depth > 2) return []
+  return ls(dir).flatMap(x => {
+    const p = path.join(dir, x)
+    if (isDir(p)) return mdFiles(p, depth + 1)
+    return x.endsWith('.md') && !/^readme/i.test(x) ? [p] : []
+  })
+}
+const scanSkillRoot = (root, source, plugin, skip) => { for (const d of findSkillDirs(root, 0, skip)) addItem('skill', path.basename(d), path.join(d, 'SKILL.md'), source, plugin) }
+scanSkillRoot(path.join(CLAUDE, 'skills'), SRC.user, null, ['synced'])
+for (const f of mdFiles(path.join(CLAUDE, 'commands'))) addItem('command', path.basename(f, '.md'), f, SRC.user)
+for (const x of ls(path.join(CLAUDE, 'agents'))) {
+  const p = path.join(CLAUDE, 'agents', x)
+  if (x.endsWith('.md')) addItem('agent', path.basename(x, '.md'), p, SRC.user)
+  else if (isDir(p)) for (const f of mdFiles(p)) addItem('agent', path.basename(f, '.md'), f, SRC.sync) // claude.ai-synced bucket
+}
+scanSkillRoot(path.join(PROJECT, '.claude/skills'), SRC.project)
+for (const f of mdFiles(path.join(PROJECT, '.claude/agents'))) addItem('agent', path.basename(f, '.md'), f, SRC.project)
+for (const f of mdFiles(path.join(PROJECT, '.claude/commands'))) addItem('command', path.basename(f, '.md'), f, SRC.project)
+for (const b of ls(path.join(CLAUDE, 'skills/synced')).filter(x => !x.startsWith('.'))) scanSkillRoot(path.join(CLAUDE, 'skills/synced', b), SRC.sync, 'anthropic-skills')
+
+// ---------- plugins ----------
+const installed = readJson(path.join(CLAUDE, 'plugins/installed_plugins.json'))?.plugins || {}
+const plugins = [], hooks = [], mcp = []
+const arr = v => v == null ? [] : Array.isArray(v) ? v : [v]
+function scanPlugin(id, root, scope, enabled) {
+  const manifest = readJson(path.join(root, '.claude-plugin/plugin.json')) || {}
+  const name = manifest.name || id.split('@')[0]
+  const before = items.length
+  const orphaned = ls(path.dirname(root)).filter(v => exists(path.join(path.dirname(root), v, '.orphaned_at'))).length
+  const p = { id, name, version: manifest.version || '?', scope, enabled, root: tilde(root), description: manifest.description || '', orphanedVersions: orphaned, counts: {} }
+  plugins.push(p)
+  if (!enabled) return
+  for (const s of manifest.skills != null ? arr(manifest.skills) : ['./skills']) scanSkillRoot(path.resolve(root, s), SRC.plugin, name)
+  for (const c of manifest.commands != null ? arr(manifest.commands) : ['./commands']) for (const f of mdFiles(path.resolve(root, c))) addItem('command', path.basename(f, '.md'), f, SRC.plugin, name)
+  for (const a of manifest.agents != null ? arr(manifest.agents) : ['./agents']) for (const f of mdFiles(path.resolve(root, a))) addItem('agent', path.basename(f, '.md'), f, SRC.plugin, name)
+  const added = items.slice(before)
+  p.counts = { skill: added.filter(i => i.kind === 'skill').length, agent: added.filter(i => i.kind === 'agent').length, command: added.filter(i => i.kind === 'command').length }
+  const hj = typeof manifest.hooks === 'string' ? readJson(path.resolve(root, manifest.hooks)) : manifest.hooks || readJson(path.join(root, 'hooks/hooks.json'))
+  if (hj) collectHooks(hj.hooks || hj, `plugin ${name}`)
+  const mj = manifest.mcpServers && Object.keys(manifest.mcpServers).length ? manifest.mcpServers : readJson(path.join(root, '.mcp.json'))?.mcpServers || readJson(path.join(root, '.mcp.json'))
+  if (mj && typeof mj === 'object') for (const [k, v] of Object.entries(mj)) if (v && typeof v === 'object' && (v.command || v.url)) addMcp(k, v, `plugin ${name}`)
+  p.counts.hooks = hooks.filter(h => h.source === `plugin ${name}`).length
+}
+for (const [id, entries] of Object.entries(installed)) {
+  const e = entries.find(x => x.scope !== 'project' || x.projectPath === PROJECT)
+  if (e) scanPlugin(id, e.installPath, e.scope, enabledPlugins[id] === true)
+}
+for (const b of ls(path.join(CLAUDE, 'plugins/synced')).filter(x => !x.startsWith('.'))) {
+  const dir = path.join(CLAUDE, 'plugins/synced', b)
+  for (const x of ls(dir)) if (isDir(path.join(dir, x, '.claude-plugin'))) scanPlugin(`${x}@claude.ai`, path.join(dir, x), SRC.sync, true)
+}
+
+// ---------- hooks ----------
+function summarizeCmd(c) {
+  if (!c) return ''
+  const script = [...c.matchAll(/([\w./-]+\.(?:js|mjs|py|sh|ts))\b/g)].map(m => m[1]).filter(s => !/bootstrap|hook-script/.test(s)).pop()
+  if (c.length > 140 && script) return '… ' + script
+  return c.length > 140 ? c.slice(0, 137) + '…' : c
+}
+function collectHooks(obj, source) {
+  for (const [event, groups] of Object.entries(obj || {})) {
+    if (!Array.isArray(groups)) continue
+    for (const g of groups) for (const h of g.hooks || []) hooks.push({ event, matcher: g.matcher || '*', source, id: g.id || null, description: g.description || '', command: summarizeCmd(h.command || h.prompt || ''), type: h.type, timeout: h.timeout || null })
+  }
+}
+for (const s of settingsFiles) collectHooks(s.json.hooks, `settings ${s.scope}`)
+
+// ---------- MCP ----------
+const SECRET_KEY = /pass|secret|token|apikey|api_key|key$|pwd/i
+function addMcp(name, cfg, source) {
+  const secrets = []
+  for (const [k, v] of Object.entries(cfg.env || {})) if (SECRET_KEY.test(k) && typeof v === 'string' && v && !v.startsWith('${')) secrets.push(k)
+  for (const [k, v] of Object.entries(cfg.headers || {})) if (/auth|key|token/i.test(k) && typeof v === 'string' && !v.includes('${')) secrets.push('header ' + k)
+  mcp.push({ name, source, transport: cfg.type || (cfg.url ? 'http' : 'stdio'), target: cfg.url || [cfg.command, ...(cfg.args || [])].join(' ').slice(0, 120), secrets })
+}
+for (const s of settingsFiles) for (const [k, v] of Object.entries(s.json.mcpServers || {})) addMcp(k, v, `settings ${s.scope}`)
+const claudeJson = readJson(path.join(HOME, '.claude.json')) || {}
+for (const [k, v] of Object.entries(claudeJson.mcpServers || {})) addMcp(k, v, `~/.claude.json (${T('user', 'ผู้ใช้')})`)
+const projCfg = claudeJson.projects?.[PROJECT] || {}
+for (const [k, v] of Object.entries(projCfg.mcpServers || {})) addMcp(k, v, `~/.claude.json (${T('project', 'โปรเจกต์')})`)
+for (const [k, v] of Object.entries(readJson(path.join(PROJECT, '.mcp.json'))?.mcpServers || {})) addMcp(k, v, `.mcp.json (${T('project', 'โปรเจกต์')})`)
+const disabledMcp = new Set(projCfg.disabledMcpServers || [])
+for (const m of mcp) m.disabled = disabledMcp.has(m.name)
+
+// ---------- harness baseline (paraphrased from Claude Code's system prompt; not on disk) ----------
+const HARNESS = 'Harness (system prompt)'
+const harnessRules = [
+  ['never', 'Commit or push only when the user asks.'],
+  ['must', 'For actions that are hard to reverse or outward-facing, confirm first unless durably authorized.'],
+  ['never', "Do the work yourself when it is a handful of tool calls; when in doubt, don't spawn a subagent."],
+  ['must', 'Prefer the dedicated file/search tools over shell commands when one fits.'],
+  ['must', 'Write code that reads like the surrounding code: match its comment density, naming, and idiom.'],
+  ['must', 'Respond in the configured language (settings.language).'],
+].map(([type, text]) => ({ type, text, source: HARNESS, file: '(system prompt)', line: 0 }))
+
+// ---------- analysis ----------
+const allRules = [...harnessRules, ...memory.flatMap(m => m.rules), ...items.filter(i => !i.disabled).flatMap(i => i.rules)]
+const SEV_ORDER = { high: 0, medium: 1, low: 2 }
+
+// 1) jobs several items claim — matched on name + first sentence of the description
+const TOPICS = [
+  ['review', T('Code review', 'รีวิวโค้ด'), /code[- ]?review|reviewer|review-pr|\breview\b/i],
+  ['test', T('TDD / testing', 'TDD / เขียนเทส'), /\btdd\b|test-driven|testing|test coverage/i],
+  ['browser', 'E2E / browser', /\be2e\b|playwright|browser|chrome|puppeteer/i],
+  ['ui', T('UI / frontend design', 'ออกแบบ UI / frontend'), /\bui\b|\bux\b|frontend|design system|tailwind|interface/i],
+  ['plan', T('Planning / spec', 'วางแผน / spec'), /\bplan(ner|ning)?\b|\bprd\b|\bspec\b|blueprint/i],
+  ['research', T('Research', 'research / ค้นคว้า'), /research|literature/i],
+  ['deploy', 'Deploy / release', /deploy|release/i],
+  ['git', 'Git commit / PR', /\bcommit\b|pull request|\bpr\b/i],
+  ['security', 'Security', /secur|vulnerab|owasp/i],
+  ['docs', 'Documentation', /documentation|readme|codemap|\bdocs\b/i],
+  ['slides', T('Slides / presentations', 'slides / presentation'), /slide|presentation|\bdeck\b|pptx/i],
+  ['db', 'Database / migration', /postgres|\bsql\b|migration|database/i],
+  ['debug', 'Debug / build errors', /debug|diagnos|build[- ](error|fix|resolver)/i],
+  ['memory', 'Memory / session / learning', /\bmemory\b|session|instinct|compact|learn\b/i],
+  ['writing', T('Writing / copy', 'การเขียน / copy'), /humaniz|copywrit|copy-edit|prose|article/i],
+]
+const lead = i => i.short + ' ' + (i.description.split(/(?<=[.!?。])\s/)[0] || '').slice(0, 200)
+const topics = TOPICS.map(([id, topic, re]) => {
+  const hits = items.filter(i => !i.disabled && re.test(lead(i)))
+  const aggressive = hits.filter(i => i.aggressive)
+  const severity = aggressive.length >= 2 ? 'high' : hits.length >= 8 ? 'medium' : hits.length >= 3 ? 'low' : null
+  return { id, topic, count: hits.length, aggressive: aggressive.map(i => i.name), severity, items: hits.map(i => ({ name: i.name, kind: i.kind, aggressive: i.aggressive })) }
+}).filter(t => t.severity).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || b.count - a.count)
+
+// 2) same short name from several sources
+const byShort = {}
+for (const i of items) (byShort[i.short.toLowerCase()] ||= []).push(`${i.name} (${i.kind})`)
+const duplicates = Object.entries(byShort).filter(([, v]) => v.length > 1).map(([name, v]) => ({ name, items: v }))
+
+// 3) opposite rules on one subject: an always-loaded rule vs a skill/agent rule. Candidates for a human to read.
+const SUBJECTS = [
+  ['commit / push', /git (commit|push)|`git push`|commit ?(\+|and|&|\/) ?push|\bpush (to |origin)|commit or push|ห้าม commit/i],
+  ['deploy', /\bdeploy/i],
+  ['spawn subagent', /\bspawn|subagents?\b|sub-agent|Task tool|Agent tool|delegate to/i],
+  ['WebFetch', /webfetch|web fetch/i],
+  [T('ask the user first', 'ถามผู้ใช้ก่อน'), /ask the user|AskUserQuestion|confirm with the user|confirm first|ถามก่อน/i],
+  [T('code comments', 'คอมเมนต์ในโค้ด'), /code comments?|comments? in (the )?code|comment density|docstring/i],
+  [T('creating docs files', 'สร้างไฟล์เอกสาร'), /create (a |any )?(\.md|markdown|documentation) files?|\bREADME\b/i],
+  [T('reply language', 'ภาษาในการตอบ'), /respond in|reply in|answer in|ตอบเป็นภาษา|in English\b/i],
+]
+// ~/.claude/context-doctor/dismissed.json: ["<subject>::<source>", ...] — pairs a human already ruled out
+const dismissed = new Set(readJson(path.join(OUT, 'dismissed.json')) || [])
+const alwaysSources = new Set([HARNESS, ...memory.map(m => m.file)])
+const ruleConflicts = SUBJECTS.map(([subject, re]) => {
+  const rs = allRules.filter(r => r.type !== 'trigger' && re.test(r.text) && !dismissed.has(`${subject}::${r.source}`))
+  const pick = (list, k) => { const seen = new Set(); return list.filter(r => !seen.has(r.source) && seen.add(r.source)).slice(0, k) }
+  const base = rs.filter(r => alwaysSources.has(r.source)), other = rs.filter(r => !alwaysSources.has(r.source))
+  const pairs = []
+  for (const [a, b] of [['never', 'must'], ['must', 'never']]) {
+    const always = base.filter(r => r.type === a), opposite = other.filter(r => r.type === b)
+    if (always.length && opposite.length) pairs.push({ always: pick(always, 3), opposite: pick(opposite, 8) })
+  }
+  return pairs.length ? { subject, pairs, sourceCount: new Set(rs.map(r => r.source)).size } : null
+}).filter(Boolean)
+
+// 4) listing + memory budget
+const LISTING_BUDGET = CONFIG.listingBudget ?? 10000 // observed via /context; Claude Code drops descriptions past this
+const listingTokens = list => list.filter(i => !i.disabled && i.kind !== 'agent').reduce((a, i) => a + i.descTokens + tokens(i.name) + 2, 0)
+const listingTokensIfFull = listingTokens(items)
+const noDesc = items.filter(i => !i.description && !i.disabled).map(i => i.name)
+const alwaysTokens = memory.reduce((a, m) => a + m.tokens, 0)
+const memText = memory.map(m => readText(untilde(m.file)) || '').join('\n')
+
+// ---------- findings ----------
+// cat: budget | routing | consistency | transparency | safety · code: anti-pattern id (CL-xx)
+const findings = []
+const F = (severity, cat, code, title, detail, fix) => findings.push({ severity, cat, code, title, detail, fix })
+const skillCount = items.filter(i => i.kind !== 'agent' && !i.disabled).length
+if (listingTokensIfFull > LISTING_BUDGET) F(listingTokensIfFull > LISTING_BUDGET * 2 ? 'high' : 'medium', 'budget', 'CL-02',
+  T(`${n(skillCount)} skills/commands overflow the listing budget`, `skill/command ${n(skillCount)} ตัว เกินงบ listing`),
+  T(`Showing every description needs ≈${n(listingTokensIfFull)} tokens; Claude Code keeps ≈${n(LISTING_BUDGET)} and sends the rest as bare names, so the model cannot tell when to use them — your own project skills included.`,
+    `ถ้าแสดง description ครบต้องใช้ ≈${n(listingTokensIfFull)} tokens แต่ Claude Code มีที่ราว ${n(LISTING_BUDGET)} ส่วนที่เกินถูกส่งเป็นชื่อเปล่า โมเดลจึงไม่รู้ว่าควรใช้เมื่อไร รวมถึง skill ของโปรเจกต์เอง`),
+  T('Disable plugins this project does not use (enabledPlugins in <project>/.claude/settings.json) or individual skills (skillOverrides: "off"). See /context-doctor:distill.',
+    'ปิด plugin ที่โปรเจกต์นี้ไม่ใช้ (enabledPlugins ใน .claude/settings.json ของโปรเจกต์) หรือปิดราย skill (skillOverrides: "off") · ดู /context-doctor:distill'))
+for (const p of plugins.filter(p => p.enabled && (p.counts.skill + p.counts.command) > 40)) F('medium', 'budget', 'CL-13',
+  T(`Plugin ${p.name} adds ${p.counts.skill} skills, ${p.counts.command} commands, ${p.counts.agent} agents`, `plugin ${p.name} เพิ่ม ${p.counts.skill} skills + ${p.counts.command} commands + ${p.counts.agent} agents`),
+  T('Catch-all plugins fill the listing and bring agents whose descriptions compete for the same jobs.', 'plugin แบบรวมทุกอย่างทำให้ listing รก และมี agent ที่แย่งงานกัน'),
+  T('If you use only a few of its skills, copy those into .claude/skills and disable the plugin for this project.', 'ถ้าใช้แค่บางตัว ให้คัดลอกเฉพาะตัวที่ใช้ไปไว้ใน .claude/skills แล้วปิด plugin ในโปรเจกต์นี้'))
+if (alwaysTokens > 8000) F('medium', 'budget', 'CL-01',
+  T(`Always-loaded memory ≈${n(alwaysTokens)} tokens`, `memory ที่โหลดทุกครั้ง ≈${n(alwaysTokens)} tokens`),
+  memory.map(m => `${m.file} ≈ ${n(m.tokens)}`).join(' · '),
+  T('Move task-specific material out of CLAUDE.md/@imports into skills, which load only when used; keep MEMORY.md a one-line-per-entry index.', 'ย้ายเนื้อหาเฉพาะงานออกจาก CLAUDE.md/@import ไปเป็น skill ที่โหลดเฉพาะตอนใช้ และให้ MEMORY.md เป็นดัชนีบรรทัดเดียวต่อเรื่อง'))
+for (const m of memory.filter(m => m.via !== 'auto' && m.tokens > 1500 && isUserScope(m))) F('medium', 'budget', 'CL-01',
+  T(`${m.file} (≈${n(m.tokens)} tokens) is @imported at user level, so every project loads it`, `${m.file} (≈${n(m.tokens)} tokens) ถูก @import ระดับผู้ใช้ จึงโหลดทุกโปรเจกต์`),
+  T(`Imported from ${m.via}.`, `นำเข้าจาก ${m.via}`),
+  T('Turn it into a skill, or import it only from the projects that need it.', 'เปลี่ยนเป็น skill หรือ import เฉพาะในโปรเจกต์ที่ใช้'))
+const aggrAgents = items.filter(i => i.kind === 'agent' && i.aggressive && !i.disabled)
+if (aggrAgents.length > 5) F('medium', 'routing', 'CL-04',
+  T(`${aggrAgents.length} agents use pressure wording ("PROACTIVELY" / "MUST BE USED")`, `${aggrAgents.length} agents เขียน description แบบสั่ง ("PROACTIVELY" / "MUST BE USED")`),
+  T(`Pushes the model to spawn agents against the harness rule "when in doubt, don't spawn". e.g. ${aggrAgents.slice(0, 8).map(a => a.name).join(', ')}`, `ขัดกับกฎ harness "When in doubt, don't spawn" ตัวอย่าง: ${aggrAgents.slice(0, 8).map(a => a.name).join(', ')}`),
+  T('Disable agents outside your stack, or the plugin for this project.', 'ปิด agent ที่ไม่ตรง stack หรือปิดทั้ง plugin ในโปรเจกต์นี้'))
+// auto-action invitations: a description that triggers an outward action on completion instead of on request
+const AUTO_ACTION = /(after|once|when) (finishing|completing|you finish|done|the change is)|automatically (deploy|push|commit|publish|release|merge)/i
+for (const i of items.filter(i => !i.disabled && AUTO_ACTION.test(i.description) && /deploy|push|commit|publish|release|merge/i.test(i.description))) F('high', 'safety', 'CL-07',
+  T(`${i.name} invites ${(i.description.match(/deploy|push|commit|publish|release|merge/i) || ['an action'])[0].toLowerCase()} without an explicit request`, `${i.name} ชวนให้ ${(i.description.match(/deploy|push|commit|publish|release|merge/i) || ['ทำ'])[0]} เองโดยไม่ได้ถูกสั่ง`),
+  `${i.file}: "${i.description.slice(0, 220)}"`,
+  T('Reword the trigger to "only when the user explicitly asks to …". See /context-doctor:secure.', 'แก้ trigger เป็น "only when the user explicitly asks to …" · ดู /context-doctor:secure'))
+for (const m of mcp.filter(m => m.secrets.length)) F('high', 'safety', 'CL-10',
+  T(`MCP "${m.name}" stores a secret in plaintext`, `MCP "${m.name}" เก็บ secret เป็น plaintext`),
+  T(`${m.source}: ${m.secrets.join(', ')} written as literal values (settings files get synced, shared and backed up).`, `${m.source}: ${m.secrets.join(', ')} เขียนค่าตรงในไฟล์ (ไฟล์ settings อาจถูก sync/แชร์/backup)`),
+  T('Use an environment variable reference (${VAR}) or a keychain, then rotate the value.', 'ย้ายไปเป็นตัวแปรแวดล้อม (${VAR}) หรือ keychain แล้วเปลี่ยนรหัสใหม่'))
+const rewriteHooks = hooks.filter(h => h.event === 'PreToolUse' && /rtk|rewrite|dispatcher/i.test(h.command + h.description))
+if (rewriteHooks.length) F('medium', 'transparency', 'CL-08',
+  T(`${rewriteHooks.length} PreToolUse hook(s) rewrite or filter commands`, `มี ${rewriteHooks.length} PreToolUse hook ที่แก้/กรองคำสั่งก่อนรัน`),
+  T('The model does not see the rewrite and may misread summarized output. ', 'โมเดลมองไม่เห็นว่าคำสั่งถูกเขียนใหม่ และอาจอ่านผลที่ถูกย่อผิด · ') + rewriteHooks.map(h => `${h.source}: ${h.id || h.command}`).join(' · '),
+  T('Document each in CLAUDE.md with what to do (e.g. "rerun with `rtk proxy <cmd>` when output looks summarized"). See /context-doctor:annotate.', 'เขียนไว้ใน CLAUDE.md ว่าต้องทำอย่างไร (เช่น "ผลดูถูกย่อ ให้รันซ้ำด้วย `rtk proxy <cmd>`") · ดู /context-doctor:annotate'))
+{
+  const hit = (h, tool) => h.matcher === '*' || h.matcher === '.*' || h.matcher.split('|').includes(tool)
+  const per = hooks.filter(h => (h.event === 'PreToolUse' || h.event === 'PostToolUse') && hit(h, 'Bash'))
+  if (per.length >= 6) F('low', 'budget', 'CL-08', T(`Each Bash call runs ${per.length} hooks`, `Bash หนึ่งครั้งรัน hook ${per.length} ตัว`),
+    per.map(h => `${h.event}: ${h.id || h.command}`).join(' · '), T('Remove hooks that duplicate each other (e.g. two status reporters).', 'ลบ hook ที่ทำงานซ้ำกัน (เช่นตัวรายงานสถานะสองตัว)'))
+}
+const orphan = plugins.reduce((a, p) => a + p.orphanedVersions, 0)
+if (orphan > 3) F('low', 'budget', 'CL-13', T(`${orphan} stale plugin versions in the cache`, `มีเวอร์ชัน plugin ค้างในแคช ${orphan} ชุด`),
+  plugins.filter(p => p.orphanedVersions).map(p => `${p.name}: ${p.orphanedVersions}`).join(' · '), T('Clean up via /plugin, or delete folders containing .orphaned_at under ~/.claude/plugins/cache.', 'ล้างผ่าน /plugin หรือลบโฟลเดอร์ที่มี .orphaned_at ใน ~/.claude/plugins/cache'))
+if (duplicates.length) F('medium', 'routing', 'CL-12', T(`${duplicates.length} names exist in more than one source`, `มี ${duplicates.length} ชื่อซ้ำข้ามแหล่ง`),
+  duplicates.slice(0, 12).map(d => `${d.name} ×${d.items.length}`).join(' · '), T('Keep one per job; turn the rest off with skillOverrides.', 'เก็บไว้ตัวเดียวต่องาน ที่เหลือปิดด้วย skillOverrides'))
+{
+  const hot = topics.filter(t => t.severity === 'high')
+  if (hot.length) F('medium', 'routing', 'CL-05', T(`${hot.length} job${hot.length === 1 ? '' : 's'} with several competing owners`, `${hot.length} งานมีหลายตัวแย่งกันรับ`),
+    hot.map(t => `${t.topic}: ${t.count} (${T('pressure', 'สั่งใช้ทันที')} ${t.aggressive.length})`).join(' · '),
+    T('Pick one owner per job, write it in project CLAUDE.md (e.g. "code review → /code-review"), disable the rest. See /context-doctor:sharpen.', 'เลือกเจ้าของหนึ่งตัวต่องาน เขียนไว้ใน CLAUDE.md ของโปรเจกต์ ที่เหลือปิด · ดู /context-doctor:sharpen'))
+}
+{
+  const thTok = Math.round(thaiCount(memText) * THAI_TOKENS_PER_CHAR)
+  if (thTok > 3000) F('low', 'budget', 'CL-14', T(`Thai text in always-loaded memory ≈${n(thTok)} tokens`, `ข้อความไทยใน memory ≈${n(thTok)} tokens`),
+    T('Thai costs ~3.5× more tokens per character than English (≈0.7 vs ≈2.5 chars/token).', 'ภาษาไทยกิน token ต่อตัวอักษรมากกว่าอังกฤษราว 3.5 เท่า (≈0.7 เทียบ ≈2.5 ตัวอักษร/token)'),
+    T('Model-only notes (MEMORY.md index, hints) can be terse English; user-facing text stays as is.', 'โน้ตที่โมเดลอ่านอย่างเดียว (ดัชนี MEMORY.md, hints) เขียนเป็นอังกฤษสั้น ๆ ได้ ข้อความที่ผู้ใช้เห็นคงเดิม'))
+}
+for (const c of ruleConflicts) F('medium', 'consistency', 'CL-06', T(`Opposite rules on "${c.subject}" across ${c.sourceCount} sources`, `กฎขั้วตรงข้ามเรื่อง "${c.subject}" จาก ${c.sourceCount} แหล่ง`),
+  c.pairs.map(p => `${p.always.map(r => `[${r.source}] ${r.text}`)[0]} ⇄ ${p.opposite.map(r => `[${r.source}] ${r.text}`)[0]}`).join(' | '),
+  T('Read both sides; if they apply to different actors it is not a conflict (add to dismissed.json), otherwise run /context-doctor:harmonize.', 'อ่านทั้งสองฝั่ง ถ้าใช้กับคนละบทบาทก็ไม่ใช่การขัดกัน (เพิ่มลง dismissed.json) ถ้าขัดจริงให้รัน /context-doctor:harmonize'))
+
+// Hand-verified checks: scanner/rules.json (shipped) + ~/.claude/context-doctor/curated.json (yours). Shown while their condition holds.
+const pickLang = v => (v && typeof v === 'object' ? v[LANG] ?? v.en : v)
+for (const c of [...(readJson(path.join(HERE, 'rules.json')) || []), ...(readJson(path.join(OUT, 'curated.json')) || [])]) {
+  const q = c.requires || {}
+  const ok = (!q.item || items.some(i => i.name === q.item && !i.disabled))
+    && (!q.itemDescIncludes || items.some(i => i.name === q.itemDescIncludes.name && !i.disabled && i.description.includes(q.itemDescIncludes.text)))
+    && (!q.memoryText || memText.includes(q.memoryText))
+    && (!q.memoryFile || memory.some(m => m.file.endsWith(q.memoryFile)))
+    && (!q.hookCommand || hooks.some(h => h.command.includes(q.hookCommand)))
+    && (!q.hookId || hooks.some(h => h.id === q.hookId))
+    && (!q.notMemoryText || !memText.includes(q.notMemoryText))
+  if (ok) findings.push({ severity: c.severity, cat: c.cat, code: c.code, title: pickLang(c.title), detail: pickLang(c.detail), fix: pickLang(c.fix), verified: true })
+}
+findings.sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || (b.verified ? 1 : 0) - (a.verified ? 1 : 0))
+
+// ---------- automatic score (estimate) — /context-doctor:audit writes verified scores to audit.json ----------
+const BEHAVIOR_HOOK = /rtk|dispatcher|format|protection|gateguard|session:start|fact-force|inject/i
+const behaviorHooks = hooks.filter(h => BEHAVIOR_HOOK.test(`${h.id} ${h.command}`))
+const isDocumented = h => (h.id && memText.includes(h.id)) || (/rtk/.test(h.command) && /rtk proxy/.test(memText))
+const clamp = x => Math.max(0, Math.min(4, x))
+const catCount = (cat, sev) => findings.filter(f => f.cat === cat && (!sev || f.severity === sev)).length
+const hotTopics = topics.filter(t => t.severity === 'high').length
+const autoScores = {
+  budget: clamp(4 - (alwaysTokens > 15000 ? 2 : alwaysTokens > 8000 ? 1 : 0) - (listingTokensIfFull > LISTING_BUDGET * 2 ? 2 : listingTokensIfFull > LISTING_BUDGET ? 1 : 0)),
+  routing: clamp((hotTopics === 0 ? 4 : hotTopics <= 2 ? 3 : hotTopics <= 4 ? 2 : hotTopics <= 6 ? 1 : 0) - (aggrAgents.length > 10 ? 1 : 0)),
+  consistency: clamp(4 - Math.min(2, Math.ceil(ruleConflicts.length / 4)) - findings.filter(f => f.verified && f.cat === 'consistency').length),
+  transparency: clamp(4 - Math.ceil(behaviorHooks.filter(h => !isDocumented(h)).length / 2)),
+  safety: clamp(4 - 2 * Math.min(1, catCount('safety', 'high')) - Math.max(0, catCount('safety', 'high') - 1)),
+}
+const audit = readJson(path.join(OUT, 'audit.json'))
+const usageData = readJson(path.join(OUT, 'usage.json'))
+const promptText = readText(path.join(OUT, 'system-prompt.md'))
+
+const report = {
+  tool: 'context-doctor', lang: LANG, generatedAt: new Date().toISOString(), project: tilde(PROJECT),
+  autoScores, audit: audit && audit.project === tilde(PROJECT) ? audit : null, listingBudget: LISTING_BUDGET,
+  usage: usageData && usageData.project === tilde(PROJECT) ? { generatedAt: usageData.generatedAt, files: usageData.files, byPlugin: usageData.byPlugin, used: usageData.used } : null,
+  systemPromptTokens: promptText ? tokens(promptText) : null,
+  behaviorHooks: behaviorHooks.map(h => ({ ...h, documented: isDocumented(h) })),
+  stats: {
+    memoryFiles: memory.length, alwaysTokens, skills: items.filter(i => i.kind === 'skill').length,
+    commands: items.filter(i => i.kind === 'command').length, agents: items.filter(i => i.kind === 'agent').length,
+    plugins: plugins.filter(p => p.enabled).length, pluginsInstalled: plugins.length, hooks: hooks.length, mcp: mcp.length,
+    rules: allRules.length, listingTokensIfFull, noDescription: noDesc.length,
+  },
+  memory, settings: settingsFiles.map(s => ({ scope: s.scope, file: tilde(s.file), keys: Object.keys(s.json), skillOverrides: s.json.skillOverrides || null, env: s.json.env ? Object.keys(s.json.env) : null })),
+  plugins, items, hooks, mcp, topics, duplicates, ruleConflicts, harnessRules, findings, noDescription: noDesc,
+}
+
+// ---------- diff against the previous scan ----------
+function diffReports(prev, cur) {
+  if (!prev || prev.project !== cur.project || prev.tool !== 'context-doctor') return null
+  const cmp = (label, a, b, key) => {
+    const A = new Set((a || []).map(key)), B = new Set((b || []).map(key))
+    return { label, added: [...B].filter(k => !A.has(k)), removed: [...A].filter(k => !B.has(k)) }
+  }
+  const sections = [
+    cmp('plugins', prev.plugins.filter(p => p.enabled), cur.plugins.filter(p => p.enabled), p => `${p.id}@${p.version}`),
+    cmp('skills/commands', prev.items.filter(i => i.kind !== 'agent'), cur.items.filter(i => i.kind !== 'agent'), i => i.name),
+    cmp('agents', prev.items.filter(i => i.kind === 'agent'), cur.items.filter(i => i.kind === 'agent'), i => i.name),
+    cmp('hooks', prev.hooks, cur.hooks, h => `${h.event} [${h.matcher}] ${h.id || h.command} (${h.source})`),
+    cmp('MCP', prev.mcp, cur.mcp, m => `${m.name} (${m.source})`),
+    cmp('memory', prev.memory, cur.memory, m => m.file),
+  ].filter(d => d.added.length || d.removed.length)
+  const changedMemory = cur.memory.map(m => [m, prev.memory.find(p => p.file === m.file)]).filter(([m, p]) => p && Math.abs(m.tokens - p.tokens) > Math.max(50, p.tokens * 0.05)).map(([m, p]) => ({ file: m.file, from: p.tokens, to: m.tokens }))
+  const changedDesc = cur.items.map(i => [i, prev.items.find(p => p.name === i.name && p.kind === i.kind)]).filter(([i, p]) => p && p.description !== i.description).map(([i]) => `${i.name} (${i.kind})`)
+  return { since: prev.generatedAt, sections, changedMemory, changedDesc, isEmpty: !sections.length && !changedMemory.length && !changedDesc.length }
+}
+fs.mkdirSync(OUT, { recursive: true })
+report.diff = diffReports(readJson(path.join(OUT, 'report.json')), report)
+fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 1))
+const tpl = readText(path.join(HERE, 'template.html'))
+if (tpl) fs.writeFileSync(path.join(OUT, 'report.html'), tpl.replace('/*__DATA__*/null', JSON.stringify(report).replace(/</g, '\\u003c')))
+
+const print = text => new Promise(r => process.stdout.write(text + '\n', r))
+const typeLabel = t => ({ never: T('never', 'ห้าม'), must: T('must', 'ต้องทำ'), trigger: T('trigger', 'ทริกเกอร์') }[t])
+const sevLabel = s => ({ high: T('high', 'สูง'), medium: T('medium', 'กลาง'), low: T('low', 'ต่ำ') }[s])
+const when = t => new Date(t).toLocaleString(LOCALE)
+
+if (args.includes('--json')) {
+  await print(JSON.stringify(report))
+} else if (args.includes('--find')) {
+  const q = new RegExp(argVal('--find', ''), 'i')
+  const hitsR = allRules.filter(r => q.test(r.text))
+  const hitsD = items.filter(i => !i.disabled && q.test(i.description))
+  const hitsH = hooks.filter(h => q.test(`${h.id} ${h.description} ${h.command}`))
+  await print([`# ${T('Search', 'ค้น')} /${q.source}/`, '',
+    `## ${T('Rules', 'กฎ')} (${hitsR.length})`, ...hitsR.slice(0, 80).map(r => `- [${typeLabel(r.type)}] ${r.text}  — ${r.source}${r.line ? ':' + r.line : ''}${alwaysSources.has(r.source) ? T(' (always loaded)', ' (โหลดทุกครั้ง)') : ''}`),
+    '', `## Descriptions (${hitsD.length})`, ...hitsD.slice(0, 60).map(i => `- ${i.name} (${i.kind}${i.aggressive ? T(', pressure wording', ', สั่งให้ใช้ทันที') : ''}): ${i.description.slice(0, 220)}`),
+    '', `## Hooks (${hitsH.length})`, ...hitsH.map(h => `- ${h.event} [${h.matcher}] ${h.id || h.command} — ${h.source}`)].join('\n'))
+} else if (args.includes('--plugins')) {
+  const proj = readJson(path.join(PROJECT, '.claude/settings.json'))?.enabledPlugins || {}
+  await print(JSON.stringify(plugins.map(p => ({
+    id: p.id, name: p.name, enabled: p.enabled, isToggleable: p.scope !== SRC.sync, isProjectOverride: p.id in proj,
+    skills: p.counts.skill ?? 0, commands: p.counts.command ?? 0, agents: p.counts.agent ?? 0, hooks: p.counts.hooks ?? 0,
+    listingTokens: listingTokens(items.filter(i => i.plugin === p.name)),
+  }))))
+} else if (args.includes('--diff')) {
+  const d = report.diff
+  const L = [`# ${T('Changes since the previous scan', 'สิ่งที่เปลี่ยนตั้งแต่สแกนครั้งก่อน')}`, '']
+  if (!d) L.push(T('No previous scan of this project yet; the next run compares against this one.', 'ยังไม่มีการสแกนครั้งก่อนของโปรเจกต์นี้ ครั้งหน้าจะเทียบกับรอบนี้'))
+  else if (d.isEmpty) L.push(T(`Nothing changed since ${when(d.since)}`, `ไม่มีอะไรเปลี่ยนตั้งแต่ ${when(d.since)}`))
+  else {
+    L.push(T(`Compared with ${when(d.since)}`, `เทียบกับ ${when(d.since)}`), '')
+    for (const s of d.sections) {
+      L.push(`## ${s.label}`, ...s.added.slice(0, 40).map(a => `- ➕ ${a}`), ...s.removed.slice(0, 40).map(r => `- ➖ ${r}`))
+      if (s.added.length > 40 || s.removed.length > 40) L.push(`- … ${T('more', 'อีก')} ${Math.max(0, s.added.length - 40) + Math.max(0, s.removed.length - 40)}`)
+      L.push('')
+    }
+    if (d.changedMemory.length) L.push(`## ${T('Memory size changed', 'memory ที่ขนาดเปลี่ยน')}`, ...d.changedMemory.map(m => `- ${m.file}: ${n(m.from)} → ${n(m.to)} tokens`), '')
+    if (d.changedDesc.length) L.push(`## ${T('Edited descriptions', 'description ที่ถูกแก้')}`, ...d.changedDesc.slice(0, 40).map(x => `- ${x}`))
+  }
+  await print(L.join('\n'))
+  process.exitCode = d && !d.isEmpty && args.includes('--exit-code') ? 3 : 0
+} else if (args.includes('--usage')) {
+  // Counts real use from Claude Code transcripts on this machine. Nothing leaves the machine.
+  const all = args.includes('--all-projects')
+  const dirs = all ? ls(path.join(CLAUDE, 'projects')).map(d => path.join(CLAUDE, 'projects', d)) : [path.join(CLAUDE, 'projects', projectSlug(PROJECT))]
+  const use = { skill: new Map(), agent: new Map(), command: new Map() }
+  const bump = (m, k, t) => { const v = m.get(k) || { n: 0, last: 0 }; v.n++; v.last = Math.max(v.last, t); m.set(k, v) }
+  let files = 0, oldest = Infinity
+  for (const d of dirs) for (const f of ls(d).filter(x => x.endsWith('.jsonl'))) {
+    const p = path.join(d, f), st = fs.statSync(p), text = readText(p) || ''
+    files++; oldest = Math.min(oldest, st.birthtimeMs || st.mtimeMs)
+    for (const m of text.matchAll(/"name":"Skill","input":\{"skill":"([^"]+)"/g)) bump(use.skill, m[1], st.mtimeMs)
+    for (const m of text.matchAll(/"subagent_type":"([^"]+)"/g)) bump(use.agent, m[1], st.mtimeMs)
+    for (const m of text.matchAll(/<command-name>\/?([^<\s]+)<\/command-name>/g)) bump(use.command, m[1], st.mtimeMs)
+  }
+  // exact full names only: a plugin item "x:plan" is not the built-in "/plan"
+  const usedNames = new Set([...use.skill.keys(), ...use.command.keys(), ...use.agent.keys()])
+  const byPlugin = {}
+  for (const i of items.filter(i => !i.disabled)) {
+    const b = (byPlugin[i.plugin || i.source] ||= { total: 0, used: 0, unusedTokens: 0 })
+    b.total++
+    if (usedNames.has(i.name)) b.used++
+    else if (i.kind !== 'agent') b.unusedTokens += i.descTokens + tokens(i.name) + 2
+  }
+  const top = (m, k = 15) => [...m.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, k)
+  const day = t => new Date(t).toLocaleDateString(LOCALE)
+  const times = T('×', 'ครั้ง')
+  fs.writeFileSync(path.join(OUT, 'usage.json'), JSON.stringify({ generatedAt: new Date().toISOString(), project: tilde(PROJECT), all, files, byPlugin, used: [...usedNames], skill: [...use.skill], agent: [...use.agent], command: [...use.command] }, null, 1))
+  await print([
+    `# ${T('Real usage', 'การใช้งานจริง')} ${all ? T('(all projects)', '(ทุกโปรเจกต์)') : T('(this project)', '(โปรเจกต์นี้)')}`, '',
+    T(`From ${files} transcripts since ${isFinite(oldest) ? day(oldest) : '-'}`, `จาก transcript ${files} ไฟล์ ตั้งแต่ ${isFinite(oldest) ? day(oldest) : '-'}`), '',
+    `## ${T('Used per source', 'แต่ละแหล่งถูกใช้จริงกี่ตัว')}`, '', `| ${T('source', 'แหล่ง')} | ${T('used / total', 'ใช้แล้ว / ทั้งหมด')} | ${T('unused listing (≈tok)', 'listing ที่ไม่เคยใช้ (≈tok)')} |`, '|---|---:|---:|',
+    ...Object.entries(byPlugin).sort((a, b) => b[1].unusedTokens - a[1].unusedTokens).map(([k, b]) => `| ${k} | ${b.used} / ${b.total} | ${n(b.unusedTokens)} |`), '',
+    `## ${T('Skills invoked', 'Skills ที่ถูกเรียก')}`, '', ...(use.skill.size ? top(use.skill).map(([k, v]) => `- ${k} — ${v.n} ${times} · ${day(v.last)}`) : ['-']), '',
+    `## ${T('Agents spawned', 'Agents ที่ถูก spawn')}`, '', ...(use.agent.size ? top(use.agent).map(([k, v]) => `- ${k} — ${v.n} ${times} · ${day(v.last)}`) : ['-']), '',
+    `## ${T('Slash commands typed', 'Slash commands ที่พิมพ์')}`, '', ...(use.command.size ? top(use.command, 20).map(([k, v]) => `- /${k} — ${v.n} ${times}`) : ['-']),
+  ].join('\n'))
+} else {
+  const s = report.stats
+  await print([
+    `# Context Doctor — ${report.project}`, '',
+    `| ${T('source', 'แหล่ง')} | ${T('count', 'จำนวน')} |`, '|---|---:|',
+    `| ${T('always-loaded memory', 'memory ที่โหลดทุกครั้ง')} | ${s.memoryFiles} ${T('files', 'ไฟล์')} ≈ ${n(s.alwaysTokens)} tokens |`,
+    `| skills / commands / agents | ${s.skills} / ${s.commands} / ${s.agents} |`,
+    `| ${T('plugins enabled', 'plugins เปิดอยู่')} | ${s.plugins} / ${s.pluginsInstalled} |`,
+    `| hooks / MCP servers | ${s.hooks} / ${s.mcp} |`,
+    `| ${T('rules extracted', 'กฎที่สกัดได้')} | ${n(s.rules)} |`, '',
+    `## ${T('Findings', 'ปัญหาที่เจอ')} (${findings.length})`,
+    ...findings.slice(0, 12).map(f => `- **[${sevLabel(f.severity)}${f.code ? ' · ' + f.code : ''}] ${f.title}** — ${f.fix}`), '',
+    `${T('Full report', 'รายงานเต็ม')}: file://${path.join(OUT, 'report.html')}`,
+  ].join('\n'))
+}
