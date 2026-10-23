@@ -1,5 +1,6 @@
 {
   "name": "context-doctor",
+  "description": "Context Doctor — see, score and fix what feeds Claude Code context",
   "owner": {
     "name": "Anawin Chuklee"
   },
