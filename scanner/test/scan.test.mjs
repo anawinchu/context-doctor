@@ -87,6 +87,7 @@ test('secrets in hooks, settings env and memory are found and never printed', ()
   assert.ok(r.findings.some(f => f.code === 'CL-10' && /hook/.test(f.title)))
   assert.ok(r.memoryCredentials.some(c => c.file.endsWith('shop-app/CLAUDE.md') && c.line === 5))
   assert.match(r.hooks.find(h => h.event === 'PostToolUse').command, /Authorization: Bearer «redacted»/)
+  assert.ok(r.items.find(i => i.name === 'deploy').rules.some(x => x.text.includes('pass `--mode deep`')), 'the verb "pass" is not a password')
 })
 
 test('broken frontmatter, silent agents and name collisions', () => {

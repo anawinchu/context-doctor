@@ -36,15 +36,17 @@
   --hatch: #3d3c37;
 }
 * { box-sizing: border-box }
+/* mono for Latin and digits; Thai falls through to a proportional Thai face instead of a spaced-out monospace fallback */
+:root { --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'IBM Plex Sans Thai', 'Noto Sans Thai', Thonburi, 'Leelawadee UI', sans-serif }
 html { scroll-behavior: smooth; scroll-padding-top: 64px }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 'IBM Plex Sans Thai', 'Noto Sans Thai', -apple-system, system-ui, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased }
-.mono, code, .eyebrow, .num, .sev, .badge, th, .tile .v, .score .big, .meter span:last-child { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace }
+.mono, code, .eyebrow, .num, .sev, .badge, th, .tile .v, .score .big, .meter span:last-child { font-family: var(--mono) }
 code { font-size: .88em; background: var(--chip); padding: 0 4px; border-radius: 2px }
 .mono { font-size: 12.5px }
 .wrap { max-width: 1160px; margin: 0 auto; padding: 0 16px 80px }
 .top { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--ink) }
 .top .wrap { display: flex; align-items: center; gap: 20px; padding-bottom: 0; min-height: 52px; flex-wrap: wrap }
-.brand { display: flex; align-items: center; gap: 8px; font: 600 14px/1 'IBM Plex Mono', ui-monospace, Menlo, monospace; letter-spacing: 0 }
+.brand { display: flex; align-items: center; gap: 8px; font: 600 14px/1 var(--mono); letter-spacing: 0 }
 .brand i { width: 10px; height: 10px; background: var(--accent); display: inline-block }
 .top nav { display: flex; gap: 0; overflow-x: auto; flex: 1; scrollbar-width: none }
 .top nav a { color: var(--ink-2); text-decoration: none; font-size: 13.5px; padding: 15px 10px 14px; white-space: nowrap; border-bottom: 2px solid transparent }
@@ -99,7 +101,7 @@ section > .eyebrow { border-top: 1px solid var(--ink); padding-top: 10px }
 .tm .cell > div { width: 100%; height: 100%; padding: 7px 9px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; cursor: default }
 .tm .cell > div:hover { outline: 2px solid var(--ink); outline-offset: -2px }
 .tm .n { font-weight: 600; font-size: 13px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.tm .m { font: 11.5px/1.4 'IBM Plex Mono', ui-monospace, Menlo, monospace; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tm .m { font: 11.5px/1.4 var(--mono); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .scale { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap }
 .scale i { width: 22px; height: 10px; display: inline-block; border: 1px solid var(--line) }
 /* findings */
@@ -131,7 +133,7 @@ details.f .fix b { color: var(--accent); font-weight: 600 }
 .ev { position: relative }
 .evnode { margin-left: -1px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-top: 2px solid var(--ink); padding: 12px 14px 16px; height: 100% }
 .evnode h4 { margin: 0 0 2px; font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px }
-.evnode h4 .c { font: 400 12px/1.6 'IBM Plex Mono', ui-monospace, Menlo, monospace; color: var(--ink-3) }
+.evnode h4 .c { font: 400 12px/1.6 var(--mono); color: var(--ink-3) }
 .evnode .when { font-size: 12px; color: var(--ink-3); margin-bottom: 10px }
 .hk { display: flex; flex-direction: column; gap: 4px }
 .hk span { font-size: 12.5px; padding: 4px 8px; background: var(--alt); color: var(--ink-2); overflow-wrap: anywhere; line-height: 1.45; border-left: 2px solid var(--line) }
@@ -142,7 +144,7 @@ details.f .fix b { color: var(--accent); font-weight: 600 }
 .owners { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0; padding: 1px 0 0 1px }
 .owners > .card { margin: -1px 0 0 -1px }
 .owner h4 { margin: 0; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px }
-.owner .cnt { font: 500 26px/1.2 'IBM Plex Mono', ui-monospace, Menlo, monospace; letter-spacing: -.03em }
+.owner .cnt { font: 500 26px/1.2 var(--mono); letter-spacing: -.03em }
 .owner .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; max-height: 120px; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent) }
 .chip { font-size: 12px; background: none; color: var(--ink-2); border: 1px solid var(--line); border-radius: 2px; padding: 1px 6px }
 .chip.hot { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 45%, transparent) }
@@ -151,10 +153,10 @@ details.f .fix b { color: var(--accent); font-weight: 600 }
 .pair { display: grid; grid-template-columns: 1fr 40px 1fr; align-items: stretch; margin-bottom: 14px }
 @media (max-width: 760px) { .pair { grid-template-columns: 1fr } .pair .vs { height: 28px } }
 .pair .side { border: 1px solid var(--line); padding: 12px 16px }
-.pair .side h5 { margin: 0 0 6px; font: 400 12px/1.5 'IBM Plex Mono', ui-monospace, Menlo, monospace; color: var(--ink-3) }
+.pair .side h5 { margin: 0 0 6px; font: 400 12px/1.5 var(--mono); color: var(--ink-3) }
 .pair .vs { display: grid; place-items: center; color: var(--ink-3); font-size: 15px }
 .rule { padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 13.5px } .rule:last-child { border: 0; padding-bottom: 0 }
-.rule .w { font: 500 11px/1 'IBM Plex Mono', ui-monospace, Menlo, monospace; margin-right: 8px }
+.rule .w { font: 500 11px/1 var(--mono); margin-right: 8px }
 .rule .w.no { color: var(--crit) } .rule .w.yes { color: var(--good) }
 .rule .s { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px }
 /* explorer */
@@ -170,7 +172,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13.5px }
 th { text-align: left; color: var(--ink-3); font-weight: 400; font-size: 11.5px; border-bottom: 1px solid var(--line); padding: 8px 10px; white-space: nowrap }
 td { border-bottom: 1px solid var(--line-2); padding: 9px 10px; vertical-align: top; overflow-wrap: anywhere }
 tr:last-child td { border-bottom: 0 }
-td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 12.5px }
+td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); font-size: 12.5px }
 tr.row { cursor: pointer } tr.row:hover td { background: var(--alt) }
 .more { margin-top: 10px; font: inherit; font-size: 14px; background: none; border: 1px solid var(--line); border-radius: 2px; padding: 8px 14px; color: var(--ink); cursor: pointer; min-height: 40px }
 .more:hover { border-color: var(--ink) }

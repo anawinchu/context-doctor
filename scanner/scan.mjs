@@ -52,7 +52,7 @@ const SECRET_KEY = /pass|secret|token|apikey|api_key|key$|pwd/i
 const hasSecret = s => typeof s === 'string' && redact(s) !== s
 // credentials written in prose (memory files): "password `123456`", "รหัสผ่าน 1234", "user@x.com / pw"
 const PROSE_CRED = [
-  /(\bpass(?:word|wd)?s?\b|\bpwd\b|รหัสผ่าน|รหัส(?=[\s:=`]))\s*(?:is|=|:|คือ)?\s*[`"']?(?!\$\{|<|«|\()([^\s`"',)(]{4,})/i,
+  /(\bpass(?:word|wd)s?\b|\bpwd\b|รหัสผ่าน|รหัส(?=[\s:=`]))\s*(?:is|=|:|คือ)?\s*[`"']?(?!\$\{|<|«|\()([^\s`"',)(]{4,})/i,
   /[\w.+-]+@[\w-]+(?:\.[\w-]+)+\s*\/\s*[`"']?([^\s`"',)]{4,})/,
 ]
 // a value counts when it has a digit or was quoted — "password policy" and `hashPassword()` do not

@@ -56,7 +56,7 @@ export function buildFixture(root = fs.mkdtempSync(path.join(os.tmpdir(), 'conte
   write(path.join(project, '.claude/rules/style.md'), '# Style\n- Always use tabs.\n')
   write(path.join(project, '.claude/rules/api/routes.md'), '---\npaths:\n  - "app/api/**"\n---\n# API routes\n' + 'Every route must check the tenant. '.repeat(200))
   json(path.join(project, '.claude/settings.json'), {})
-  skill(path.join(project, '.claude/skills'), 'deploy', 'Deploy to production then commit and push. Use when the user asks to ship, or after finishing a change that must go live.', '- Always git push to origin after deploying.')
+  skill(path.join(project, '.claude/skills'), 'deploy', 'Deploy to production then commit and push. Use when the user asks to ship, or after finishing a change that must go live.', '- Always git push to origin after deploying.\n- You must pass `--mode deep` to every step.')
 
   // a transcript: the built-in /plan was typed (must not count as megapack:plan), research skill invoked
   const slug = project.replace(/[^A-Za-z0-9]/g, '-')
