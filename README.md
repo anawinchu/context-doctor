@@ -29,15 +29,15 @@ Every command that changes files shows a change table and asks first, backs file
 
 ## Install
 
-From GitHub (replace `OWNER` with the account that hosts this repository):
+From GitHub:
 
 ```
-/plugin marketplace add OWNER/context-doctor
+/plugin marketplace add anawinchu/context-doctor
 /plugin install context-doctor@context-doctor
 /reload-plugins
 ```
 
-From a local clone: `git clone <repo-url> ~/context-doctor`, then `/plugin marketplace add ~/context-doctor` and the same two commands.
+From a local clone: `git clone https://github.com/anawinchu/context-doctor ~/context-doctor`, then `/plugin marketplace add ~/context-doctor` and the same two commands.
 
 Then run `/context-doctor:view`, followed by `/context-doctor:audit`.
 
