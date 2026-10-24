@@ -21,11 +21,11 @@ const STRINGS = {
     changed: 'Context Doctor: your context changed since the last scan · /context-doctor-diff',
     reload: 'Reload', loading: 'Loading…', openHtml: 'Open HTML report', pressReload: 'Press "Reload"',
     scanFailed: (c: number) => `Scan failed (exit ${c})`, toggleFailed: (n: string, e: string) => `Could not change ${n}: ${e}`,
-    toggled: (n: string, on: boolean) => `${n} → ${on ? 'on' : 'off'} in .claude/settings.json · applies to the next session`,
+    toggled: (n: string, on: boolean) => `${n} → ${on ? 'on' : 'off'} in .claude/settings.local.json (personal) · applies to the next session`,
     composing: 'Composing prompt…', scopes: 'S = shared across users (cacheable) · P = this session only', openPrompt: 'Open the full prompt file',
     firstMsg: 'First message (CLAUDE.md, email, date)', notCaptured: 'Not captured yet: this block is sent once per conversation; it shows after the next /clear or compaction (the Summary tab reads the files directly).',
     liveHead: (t: number, n: number) => `turn ${t} · tool calls this turn ${n} · HOOK→ = text a hook injected for the model`, noEvents: 'No events yet; recording starts when the plugin loads.',
-    pluginsHead: 'Writes the project .claude/settings.json · applies next session · numbers = skill/cmd/agent/hook · ≈listing tokens',
+    pluginsHead: 'Writes .claude/settings.local.json (personal, not shared with the team) · applies next session · numbers = skill/cmd/agent/hook · ≈listing tokens',
     on: 'On', off: 'Off', projectSet: '  (set in project)', promptTitle: 'System prompt Claude Code composed for this session', blocksTitle: 'Context blocks in the first message',
   },
   th: {
@@ -41,11 +41,11 @@ const STRINGS = {
     changed: 'Context Doctor: context เปลี่ยนตั้งแต่สแกนครั้งก่อน · /context-doctor-diff',
     reload: 'โหลดใหม่', loading: 'กำลังโหลด…', openHtml: 'เปิดรายงาน HTML', pressReload: 'กด "โหลดใหม่"',
     scanFailed: (c: number) => `สแกนไม่สำเร็จ (exit ${c})`, toggleFailed: (n: string, e: string) => `เปลี่ยน ${n} ไม่สำเร็จ: ${e}`,
-    toggled: (n: string, on: boolean) => `${n} → ${on ? 'เปิด' : 'ปิด'} ใน .claude/settings.json · มีผลเมื่อเริ่ม session ใหม่`,
+    toggled: (n: string, on: boolean) => `${n} → ${on ? 'เปิด' : 'ปิด'} ใน .claude/settings.local.json (ของคุณคนเดียว) · มีผลเมื่อเริ่ม session ใหม่`,
     composing: 'กำลังประกอบ prompt…', scopes: 'S = ส่วนที่ทุกคนใช้ร่วมกัน (cache ได้) · P = ส่วนเฉพาะ session นี้', openPrompt: 'เปิดไฟล์ prompt เต็ม',
     firstMsg: 'ข้อความแรก (CLAUDE.md, email, วันที่)', notCaptured: 'ยังไม่ได้จับ: บล็อกนี้ส่งครั้งเดียวต่อบทสนทนา จะเห็นหลัง /clear หรือ compact ครั้งถัดไป (แท็บสรุปอ่านจากไฟล์ได้อยู่แล้ว)',
     liveHead: (t: number, n: number) => `turn ${t} · tool calls ใน turn นี้ ${n} · HOOK→ = ข้อความที่ hook ฉีดให้โมเดลอ่าน`, noEvents: 'ยังไม่มีเหตุการณ์ จะเริ่มบันทึกตั้งแต่ plugin โหลด',
-    pluginsHead: 'เขียนลง .claude/settings.json ของโปรเจกต์ · มีผลเมื่อเริ่ม session ใหม่ · ตัวเลข = skill/cmd/agent/hook · ≈token ของ listing',
+    pluginsHead: 'เขียนลง .claude/settings.local.json (ของคุณคนเดียว ไม่แชร์ให้ทีม) · มีผลเมื่อเริ่ม session ใหม่ · ตัวเลข = skill/cmd/agent/hook · ≈token ของ listing',
     on: 'เปิด', off: 'ปิด', projectSet: '  (ตั้งในโปรเจกต์)', promptTitle: 'System prompt ที่ Claude Code ประกอบให้ session นี้', blocksTitle: 'Context blocks ในข้อความแรก',
   },
 }
@@ -125,20 +125,26 @@ async function togglePlugin($: EngineInterface, row: PluginRow) {
   await loadPlugins($)
 }
 
+// The composed prompt holds what is not on disk (MCP and claude.ai connector instructions); scan.mjs reads the
+// saved copy, so it is written at session start too, without touching the pane.
+async function capturePrompt($: EngineInterface) {
+  const { sections } = await $.prompt.compose()
+  const ctx = await read($, context)
+  const body = [
+    `# ${tr().promptTitle}`,
+    '',
+    ...sections.flatMap(s => [`<!-- section: ${s.id} · ${s.scope} · ≈${tokens(s.text)} tokens -->`, s.text, '']),
+    ctx ? `\n# ${tr().blocksTitle}\n\n${ctx.blocks.map(b => `- ${b.name} ≈${b.tokens} tokens`).join('\n')}` : '',
+  ].join('\n')
+  const file = `${await homeDir($)}/.claude/context-doctor/system-prompt.md`
+  await $.fs.write(file, body)
+  return { sections, file }
+}
+
 async function loadPrompt($: EngineInterface) {
   await update($, isBusy, () => true)
   try {
-    const { sections } = await $.prompt.compose()
-    const dir = `${await homeDir($)}/.claude/context-doctor`
-    const ctx = await read($, context)
-    const body = [
-      `# ${tr().promptTitle}`,
-      '',
-      ...sections.flatMap(s => [`<!-- section: ${s.id} · ${s.scope} · ≈${tokens(s.text)} tokens -->`, s.text, '']),
-      ctx ? `\n# ${tr().blocksTitle}\n\n${ctx.blocks.map(b => `- ${b.name} ≈${b.tokens} tokens`).join('\n')}` : '',
-    ].join('\n')
-    const file = `${dir}/system-prompt.md`
-    await $.fs.write(file, body)
+    const { sections, file } = await capturePrompt($)
     const info: PromptInfo = {
       sections: sections.map(s => ({ id: s.id, scope: s.scope, tokens: tokens(s.text), head: oneLine(s.text, 90) })),
       totalTokens: sections.reduce((a, s) => a + tokens(s.text), 0),
@@ -187,9 +193,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await init($)
     for (const v of VIEWS) await $.command.register({ name: v.command, description: tr().views[v.view][1] ?? '' })
-    // tell the user when plugins/skills/hooks/MCP changed since the last scan
-    void sh($, `${scan} --diff --exit-code`).then(r => {
-      if (r.exitCode === 3) $.ui.toast(tr().changed)
+    // save the composed prompt first so the scan sees MCP instructions, then tell the user what changed
+    void capturePrompt($).catch(() => {}).then(() => sh($, `${scan} --diff --exit-code`)).then(r => {
+      if (r && r.exitCode === 3) $.ui.toast(tr().changed)
     }).catch(() => {})
 
     return next(e)

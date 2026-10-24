@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Context Doctor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   color-scheme: light;
@@ -42,8 +40,8 @@
 }
 * { box-sizing: border-box }
 html { scroll-behavior: smooth; scroll-padding-top: 72px }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.65 'IBM Plex Sans Thai', system-ui, sans-serif; -webkit-font-smoothing: antialiased }
-.mono, code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.65 'IBM Plex Sans Thai', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased }
+.mono, code { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px }
 .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px 80px }
 .top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line) }
 .top .wrap { display: flex; align-items: center; gap: 16px; padding-bottom: 0; min-height: 56px; flex-wrap: wrap }
@@ -317,7 +315,7 @@ const isUsed = i => usedNames.has(i.name)
 {
   const cols = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)']
   const segs = [...(R.systemPromptTokens ? [{ label: 'system prompt', tokens: R.systemPromptTokens, note: '/context-doctor-prompt', imp: false }] : []),
-    ...R.memory.map(m => ({ label: short(m.file), tokens: m.tokens, note: `${m.scope}${m.via !== 'auto' ? ` · ${I.viaImport} ${short(m.via)}` : ''}`, imp: m.via !== 'auto' }))]
+    ...R.memory.filter(m => !m.lazy).map(m => ({ label: short(m.file), tokens: m.tokens, note: `${m.scope}${m.via !== 'auto' ? ` · ${I.viaImport} ${short(m.via)}` : ''}`, imp: m.via !== 'auto' }))]
   const tot = segs.reduce((a, s) => a + s.tokens, 0) || 1
   const full = S.listingTokensIfFull, fit = Math.min(full, R.listingBudget)
   const hatch = 'repeating-linear-gradient(45deg,var(--hatch) 0 2px,transparent 2px 5px)'
@@ -406,7 +404,7 @@ $('#ownerGrid').innerHTML = R.topics.map(t => {
 // explorer
 {
   const allRules = [...R.harnessRules, ...R.memory.flatMap(m => m.rules), ...R.items.filter(i => !i.disabled).flatMap(i => i.rules)]
-  const always = new Set(['Harness (system prompt)', ...R.memory.map(m => m.file)])
+  const always = new Set(['Harness (system prompt)', ...R.memory.filter(m => !m.lazy).map(m => m.file)])
   const TABS = ['items', 'rules', 'plugins', 'mcp', 'dups'], counts = [R.items.length, allRules.length, R.plugins.length, R.mcp.length, R.duplicates.length]
   let tab = 'items'
   const drawTabs = () => { $('#xtabs').innerHTML = TABS.map((v, i) => `<button class="${v === tab ? 'on' : ''}" data-v="${v}">${I.tabs[i]} ${fmt(counts[i])}</button>`).join('') }

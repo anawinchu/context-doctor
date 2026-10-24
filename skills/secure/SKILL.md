@@ -12,7 +12,7 @@ Invoke `/context-doctor:context-doctor` and run its Context Gathering Protocol.
 
 ## Checks
 
-1. **Secrets (CL-10)** — `report.mcp[].secrets`; also grep settings files and `~/.claude.json` for keys named like password/token/secret/key with literal values. Report **key names and file only**, never values. Note whether the file is in a git repo or a synced folder (`git -C <dir> ls-files <file>`).
+1. **Secrets (CL-10)** — findings CL-10 cover MCP `env`/`headers`/args/URL (`report.mcp[].secrets`), hook commands (`hooks[].hasSecret`), settings `env`, and credential-looking lines in always-loaded memory (`report.memoryCredentials`, file:line only). The scanner redacts values everywhere; keep it that way. Read flagged memory lines yourself to tell a throwaway demo login from a real one, but quote only the file:line. Report **key names and file only**, never values. Note whether the file is in a git repo or a synced folder (`git -C <dir> ls-files <file>`).
 2. **Auto-actions (CL-07)** — `--find "deploy|git push|publish|send|delete|drop table|migrat"` across descriptions and always-loaded memory. Flag any description that triggers on completion of work ("after finishing …") rather than on an explicit request.
 3. **Hooks** — any hook that: downloads and runs code (`curl … | sh`, `npx -y pkg@latest`), sends data off-machine, or edits files outside the project. Read the script to confirm.
 4. **Untrusted instructions (CL-16)** — `--find "ignore (all |any )?previous|do not (tell|inform) the user|without (asking|confirmation)|exfiltrat|\\.env"` across enabled plugin skills; read hits in context.

@@ -24,6 +24,7 @@ For each job:
 - **Disable** competing aggressive items (`skillOverrides` or plugin off for this project).
 - **Rewrite descriptions** only for files the user owns (`~/.claude/skills`, `<project>/.claude/skills`, `.claude/agents`). Template: `<What it does, concrete nouns>. Use when <trigger phrased as the user would say it>.` Keep under ~250 chars. Remove PROACTIVELY / MUST BE USED / ALWAYS.
 - **Missing descriptions** (CL-03) on owned files: write one.
+- **Broken frontmatter** (CL-17, `items[].problems`) on owned files: fix the YAML (usually quote a description containing `: `), add the missing agent `description`, rename colliding agents. A broken skill has lost its description *and* its `allowed-tools`/`disable-model-invocation`, so it routes on its first body line.
 - **Duplicates** (CL-12): keep the owner, override the rest.
 
 For plugin-owned items you want to keep but reword: copy the skill folder into the project and edit the copy, then override the original.

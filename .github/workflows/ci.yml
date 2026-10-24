@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scanner:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --check scanner/scan.mjs
+      - run: node --test scanner/test/scan.test.mjs
+      - name: rules.json is valid and bilingual
+        run: node -e 'const r=require("./scanner/rules.json");for(const c of r)for(const k of ["title","detail","fix"])if(!c[k]?.en||!c[k]?.th)throw new Error(k+" missing in "+JSON.stringify(c.title))'
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate .
+      - run: claude plugin test .

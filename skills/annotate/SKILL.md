@@ -24,6 +24,8 @@ Invoke `/context-doctor:context-doctor` and run its Context Gathering Protocol. 
 
 Read the hook's script (path in `command`) when the description is unclear, to confirm what it actually does.
 
+Add what transcripts measured (`report.usage.hooks`, from `--usage`): runs, average/max time, timeouts, errors. A hook that times out or averages over ~1.5 s (CL-18) is a removal candidate before it is a documentation candidate. `report.usage.denials` shows which tools got blocked and why (`permission-rule`, `user-rejected`, `automode-blocked`); denials from a gate hook are the ones the model needs a note for.
+
 ## 2. Draft "Environment notes"
 
 One compact section for the right file: user `~/.claude/CLAUDE.md` for user-level hooks, project CLAUDE.md for project/plugin hooks. One line each, behavior + what to do:

@@ -1,6 +1,6 @@
 {
   "name": "context-doctor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "See, score and fix what feeds Claude Code context — memory, skills, agents, hooks, MCP. Audits, routing, conflicts, real usage, live view.",
   "types": "./types/index.d.ts",
   "license": "MIT",
